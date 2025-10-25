@@ -1,31 +1,32 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Runtime.CompilerServices;
-using Frosty.Core;
+﻿using Frosty.Core;
 using FrostySdk;
 using FrostySdk.Attributes;
+using FrostySdk.IO;
 using FrostySdk.Managers;
 using FrostySdk.Managers.Entries;
 using Microsoft.CSharp.RuntimeBinder;
+using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 namespace SoundEditorPlugin.Resources
 {
     public class NewWaveAssetOverride : BaseTypeOverride
     {
         [FieldIndex(0)]
         public BaseFieldOverride Chunks { get; set; }
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.Struct)]
         [FieldIndex(10)]
         public List<Variation> RuntimeVariations { get; set; }
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.Struct)]
         [FieldIndex(11)]
         public List<Selection> Selection { get; set; }
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.Struct)]
         [FieldIndex(12)]
         public List<SelectionParameter> SelectionParameters { get; set; }
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.Struct)]
         [FieldIndex(16)]
         public List<Segment> Segments { get; set; }
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.Struct)]
         [FieldIndex(17)]
         public List<Persistence> Persistence { get; set; }
 

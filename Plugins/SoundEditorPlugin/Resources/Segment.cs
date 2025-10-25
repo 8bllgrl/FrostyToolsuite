@@ -1,26 +1,23 @@
-﻿using System;
-using FrostySdk.Attributes;
+﻿using FrostySdk.Attributes;
+using FrostySdk.Ebx;
+using FrostySdk.IO;
+using System;
 
 namespace SoundEditorPlugin.Resources
 {
 
-    [EbxClassMeta()]
+    [EbxClassMeta(EbxFieldType.Struct)]
     public class Segment
     {
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.UInt32)]
         public uint SamplesOffset { get; set; }
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.Int32)]
         public uint SamplesOffsetFlag { get; set; }
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.UInt32)]
         public uint SeekTableOffset { get; set; }
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.Int32)]
         public uint SeekTableFlag { get; set; }
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.UInt32)]
         public float SegmentLength { get; set; }
     }
 }

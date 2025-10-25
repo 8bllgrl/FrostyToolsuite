@@ -1,17 +1,16 @@
-﻿using System;
-using FrostySdk.Attributes;
+﻿using FrostySdk.Attributes;
+using FrostySdk.IO;
+using System;
 
 namespace SoundEditorPlugin.Resources
 {
 
-    [EbxClassMeta()]
+    [EbxClassMeta(EbxFieldType.Struct)]
     public class SelectionParameter
     {
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.UInt32)]
         public uint ParameterId { get; set; }
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.UInt32)]
         public uint ParameterIndex { get; set; }
     }
 }

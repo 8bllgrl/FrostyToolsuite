@@ -1,27 +1,23 @@
-﻿using System;
-using FrostySdk.Attributes;
+﻿using FrostySdk.Attributes;
+using FrostySdk.IO;
+using System;
 
 namespace SoundEditorPlugin.Resources
 {
 
-    [EbxClassMeta()]
+    [EbxClassMeta(EbxFieldType.Struct)]
     public class Selection
     {
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.UInt32)]
         public uint VariationId { get; set; }
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.UInt32)]
         public uint VariationIndex { get; set; }
-
         [DisplayName("80268F2E")]
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.UInt32)]
         public int unkown { get; set; }
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.UInt32)]
         public int PreDelay { get; set; }
-
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.Boolean)]
         public bool IsDay { get; set; }
     }
 }

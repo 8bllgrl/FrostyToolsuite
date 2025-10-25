@@ -1,7 +1,8 @@
-﻿using System;
-using Frosty.Core;
+﻿using Frosty.Core;
 using Frosty.Core.Controls.Editors;
 using FrostySdk.Attributes;
+using FrostySdk.IO;
+using System;
 
 namespace SoundEditorPlugin
 {
@@ -15,7 +16,7 @@ namespace SoundEditorPlugin
         [Description("Playback volume for sounds.")]
         [Editor(typeof(FrostySliderEditor))]
         [SliderMinMax(0f, 100f, 1f, 10f, true)]
-        [EbxFieldMeta()]
+        [EbxFieldMeta(EbxFieldType.Float32)]
         public float Volume { get; set; } = 20f;
 
         public override void Load()

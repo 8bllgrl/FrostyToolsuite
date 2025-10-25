@@ -10,10 +10,8 @@ namespace SoundEditorPlugin.Resources
     {
         [EbxFieldMeta(EbxFieldType.CString)]
         public CString StringId { get; set; }
-
         [EbxFieldMeta(EbxFieldType.Float32)]
         public float Time { get; set; }
-
         [EbxFieldMeta(EbxFieldType.Int32)]
         public int AdditionalSubtitleInfoType { get; set; }
     }
