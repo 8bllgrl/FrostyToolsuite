@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FrostyCore", "FrostyPlugin\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FrostySdk", "FrostySdk\FrostySdk.csproj", "{93FB4A0C-DF89-4169-80B5-C4E2277FF7A0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SoundEditorPlugin", "Plugins\SoundEditorPlugin\SoundEditorPlugin.csproj", "{EC922D0A-3473-76C4-F463-10AA0EE78232}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Developer - Debug|x64 = Developer - Debug|x64
@@ -159,6 +161,22 @@ Global
 		{93FB4A0C-DF89-4169-80B5-C4E2277FF7A0}.Release - Final|x64.Build.0 = Release - Final|x64
 		{93FB4A0C-DF89-4169-80B5-C4E2277FF7A0}.Release - Final|x86.ActiveCfg = Release - Final|x64
 		{93FB4A0C-DF89-4169-80B5-C4E2277FF7A0}.Release - Final|x86.Build.0 = Release - Final|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Developer - Debug|x64.ActiveCfg = Developer - Debug|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Developer - Debug|x64.Build.0 = Developer - Debug|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Developer - Debug|x86.ActiveCfg = Developer - Debug|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Developer - Debug|x86.Build.0 = Developer - Debug|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Alpha|x64.ActiveCfg = Release - Alpha|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Alpha|x64.Build.0 = Release - Alpha|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Alpha|x86.ActiveCfg = Release - Alpha|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Alpha|x86.Build.0 = Release - Alpha|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Beta|x64.ActiveCfg = Release - Beta|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Beta|x64.Build.0 = Release - Beta|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Beta|x86.ActiveCfg = Release - Beta|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Beta|x86.Build.0 = Release - Beta|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Final|x64.ActiveCfg = Release - Final|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Final|x64.Build.0 = Release - Final|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Final|x86.ActiveCfg = Release - Final|x64
+		{EC922D0A-3473-76C4-F463-10AA0EE78232}.Release - Final|x86.Build.0 = Release - Final|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
