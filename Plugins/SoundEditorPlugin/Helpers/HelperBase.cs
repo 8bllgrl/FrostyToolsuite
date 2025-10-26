@@ -5,117 +5,133 @@ using System.IO.Compression;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Diagnostics; // Added for Debug.WriteLine
 
 namespace SoundEditorPlugin.Helpers
 {
-	// Token: 0x0200002D RID: 45
-	public abstract class HelperBase<T> where T : HelperBase<T>, new()
-	{
-		// Token: 0x1700007C RID: 124
-		// (get) Token: 0x06000179 RID: 377 RVA: 0x0000A7B7 File Offset: 0x000089B7
-		// (set) Token: 0x0600017A RID: 378 RVA: 0x0000A7BF File Offset: 0x000089BF
-		public string BasePath { get; protected set; } = "Base";
+    public abstract class HelperBase<T> where T : HelperBase<T>, new()
+    {
+        // Public properties defining paths and names
+        public string BasePath { get; protected set; } = "Base";
 
-		// Token: 0x1700007D RID: 125
-		// (get) Token: 0x0600017B RID: 379 RVA: 0x0000A7C8 File Offset: 0x000089C8
-		// (set) Token: 0x0600017C RID: 380 RVA: 0x0000A7D0 File Offset: 0x000089D0
-		public string ResourceName { get; protected set; } = "Resource";
+        public string ResourceName { get; protected set; } = "Resource";
 
-		// Token: 0x1700007E RID: 126
-		// (get) Token: 0x0600017D RID: 381 RVA: 0x0000A7D9 File Offset: 0x000089D9
-		// (set) Token: 0x0600017E RID: 382 RVA: 0x0000A7E1 File Offset: 0x000089E1
-		public string ToolName { get; protected set; } = "Tool";
+        public string ToolName { get; protected set; } = "Tool";
 
-		// Token: 0x1700007F RID: 127
-		// (get) Token: 0x0600017F RID: 383 RVA: 0x0000A7EA File Offset: 0x000089EA
-		public string ResourcePath
-		{
-			get
-			{
-				return Path.Combine(this.BasePath, this.ToolName);
-			}
-		}
+        public string ResourcePath
+        {
+            get
+            {
+                return Path.Combine(this.BasePath, this.ToolName);
+            }
+        }
 
-		// Token: 0x17000080 RID: 128
-		// (get) Token: 0x06000180 RID: 384 RVA: 0x0000A7FD File Offset: 0x000089FD
-		public static T Instance
-		{
-			get
-			{
-				return HelperBase<T>.lazy.Value;
-			}
-		}
+        public static T Instance
+        {
+            get
+            {
+                return HelperBase<T>.lazy.Value;
+            }
+        }
 
-		// Token: 0x06000181 RID: 385 RVA: 0x0000A80C File Offset: 0x00008A0C
-		public async Task InitializeAsync()
-		{
-			await this._semaphore.WaitAsync();
-			this.State = HelperBase<T>.InitializedState.Initializing;
-			Directory.CreateDirectory(this.BasePath);
-			Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(this.ResourceName);
-			ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Read, false);
-			foreach (ZipArchiveEntry zipArchiveEntry in archive.Entries)
-			{
-				Stream entryStream = null;
-				FileStream outputStream = null;
-				try
-				{
-					entryStream = zipArchiveEntry.Open();
-					string text = Path.Combine(this.BasePath, zipArchiveEntry.Name);
-					if (!File.Exists(text))
-					{
-						outputStream = new FileStream(text, FileMode.Create, FileAccess.Write, FileShare.Read);
-						await entryStream.CopyToAsync(outputStream).ConfigureAwait(false);
-					}
-				}
-				finally
-				{
-					Stream stream2 = entryStream;
-					if (stream2 != null)
-					{
-						stream2.Dispose();
-					}
-					FileStream fileStream = outputStream;
-					if (fileStream != null)
-					{
-						fileStream.Dispose();
-					}
-				}
-				entryStream = null;
-				outputStream = null;
-			}
-			IEnumerator<ZipArchiveEntry> enumerator = null;
-			this.State = HelperBase<T>.InitializedState.Initialized;
-			archive.Dispose();
-			stream.Dispose();
-			this._semaphore.Release();
-		}
+        /// <summary>
+        /// Initializes the helper by extracting the embedded resource zip file to the BasePath directory.
+        /// Uses a SemaphoreSlim to ensure thread-safe, single initialization.
+        /// </summary>
+        public async Task InitializeAsync()
+        {
+            // Wait for the semaphore to ensure only one thread initializes at a time
+            await this._semaphore.WaitAsync();
 
-		// Token: 0x06000182 RID: 386 RVA: 0x0000A850 File Offset: 0x00008A50
-		public async Task WaitForSemaphore()
-		{
-			await this._semaphore.WaitAsync();
-			this._semaphore.Release();
-		}
+            Stream stream = null;
+            ZipArchive archive = null;
 
-		// Token: 0x040000A7 RID: 167
-		private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+            try
+            {
+                this.State = InitializedState.Initializing;
 
-		// Token: 0x040000A8 RID: 168
-		public HelperBase<T>.InitializedState State;
+                // Ensure the base directory exists
+                Directory.CreateDirectory(this.BasePath);
 
-		// Token: 0x040000AC RID: 172
-		private static readonly Lazy<T> lazy = new Lazy<T>(() => new T());
+                // Load the embedded resource stream
+                stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(this.ResourceName);
+                if (stream == null)
+                {
+                    throw new FileNotFoundException($"Embedded resource stream for '{this.ResourceName}' was not found.");
+                }
 
-		// Token: 0x02000056 RID: 86
-		public enum InitializedState
-		{
-			// Token: 0x04000281 RID: 641
-			NotInitialized,
-			// Token: 0x04000282 RID: 642
-			Initializing,
-			// Token: 0x04000283 RID: 643
-			Initialized
-		}
-	}
+                archive = new ZipArchive(stream, ZipArchiveMode.Read, false);
+
+                // Extract all files from the zip archive
+                foreach (ZipArchiveEntry zipArchiveEntry in archive.Entries)
+                {
+                    Stream entryStream = null;
+                    FileStream outputStream = null;
+
+                    try
+                    {
+                        string destinationPath = Path.Combine(this.BasePath, zipArchiveEntry.Name);
+
+                        // Only extract if the file does not already exist
+                        if (!File.Exists(destinationPath))
+                        {
+                            entryStream = zipArchiveEntry.Open();
+                            outputStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+
+                            // Copy the stream asynchronously
+                            await entryStream.CopyToAsync(outputStream).ConfigureAwait(false);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log extraction failures but attempt to continue with other files
+                        Debug.WriteLine($"Error extracting file '{zipArchiveEntry.Name}' to '{this.BasePath}'. Error: {ex.Message}");
+                    }
+                    finally
+                    {
+                        // Clean disposal for inner streams
+                        entryStream?.Dispose();
+                        outputStream?.Dispose();
+                    }
+                }
+
+                this.State = InitializedState.Initialized;
+            }
+            catch (Exception ex)
+            {
+                // Log and re-throw critical initialization failure
+                this.State = InitializedState.NotInitialized;
+                Debug.WriteLine($"CRITICAL Initialization Failure for HelperBase. Resource: {this.ResourceName}. Error: {ex.Message}");
+                throw;
+            }
+            finally
+            {
+                // Dispose of main resources if they were successfully created
+                archive?.Dispose();
+                stream?.Dispose();
+
+                // Release the semaphore in the final block
+                this._semaphore.Release();
+            }
+        }
+
+        public async Task WaitForSemaphore()
+        {
+            await this._semaphore.WaitAsync();
+            this._semaphore.Release();
+        }
+
+        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+
+        public InitializedState State;
+
+        private static readonly Lazy<T> lazy = new Lazy<T>(() => new T());
+
+        public enum InitializedState
+        {
+            NotInitialized,
+            Initializing,
+            Initialized
+        }
+    }
 }
