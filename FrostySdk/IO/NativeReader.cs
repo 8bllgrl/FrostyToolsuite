@@ -5,11 +5,6 @@ using System.Text;
 
 namespace FrostySdk.IO
 {
-    public enum Endian
-    {
-        Little,
-        Big
-    }
 
     public class NativeReader : IDisposable
     {

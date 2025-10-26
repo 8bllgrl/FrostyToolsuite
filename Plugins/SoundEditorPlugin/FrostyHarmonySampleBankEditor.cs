@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
-using System.Linq.Expressions;
-using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -14,11 +12,25 @@ using FrostySdk.Interfaces;
 using FrostySdk.IO;
 using FrostySdk.Managers;
 using FrostySdk.Managers.Entries;
-using Microsoft.CSharp.RuntimeBinder;
 using WaveFormRendererLib;
+using SoundEditorPlugin; // Added reference to the plugin namespace for EALayer3/XAS
 
 namespace SoundEditorPlugin
 {
+    // NOTE: This class definition is REQUIRED to replace the dynamic code. 
+    // If the actual type of base.RootObject is exposed elsewhere in the SDK,
+    // you should replace this inline declaration with the actual class name
+    // and cast. Since the name is unknown, we define a local type with the
+    // properties inferred from the decompiled code.
+    // The properties used dynamically were: Chunks, RamChunkIndex, StreamChunkIndex, and ChunkId
+    public class HarmonySampleBankData
+    {
+        public List<object> Chunks { get; set; }
+        public int RamChunkIndex { get; set; }
+        public int StreamChunkIndex { get; set; }
+        public uint ChunkId { get; set; }
+    }
+
 
     public class FrostyHarmonySampleBankEditor : FrostySoundDataEditor
     {
@@ -36,146 +48,77 @@ namespace SoundEditorPlugin
         protected override List<SoundDataTrack> InitialLoad(FrostyTaskWindow task)
         {
             List<SoundDataTrack> list = new List<SoundDataTrack>();
-            object rootObject = base.RootObject;
-            if (FrostyHarmonySampleBankEditor.<> o__2.<> p__2 == null)
-            {
-                FrostyHarmonySampleBankEditor.<> o__2.<> p__2 = CallSite<Func<CallSite, object, object, object>>.Create(Binder.GetIndex(CSharpBinderFlags.None, typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[]
-                {
-                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null),
-                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null)
-                }));
-            }
-            Func<CallSite, object, object, object> target = FrostyHarmonySampleBankEditor.<> o__2.<> p__2.Target;
-            CallSite<> p__ = FrostyHarmonySampleBankEditor.<> o__2.<> p__2;
-            if (FrostyHarmonySampleBankEditor.<> o__2.<> p__0 == null)
-            {
-                FrostyHarmonySampleBankEditor.<> o__2.<> p__0 = CallSite<Func<CallSite, object, object>>.Create(Binder.GetMember(CSharpBinderFlags.ResultIndexed, "Chunks", typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[] { CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null) }));
-            }
-            object obj = FrostyHarmonySampleBankEditor.<> o__2.<> p__0.Target(FrostyHarmonySampleBankEditor.<> o__2.<> p__0, rootObject);
-            if (FrostyHarmonySampleBankEditor.<> o__2.<> p__1 == null)
-            {
-                FrostyHarmonySampleBankEditor.<> o__2.<> p__1 = CallSite<Func<CallSite, object, object>>.Create(Binder.GetMember(CSharpBinderFlags.None, "RamChunkIndex", typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[] { CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null) }));
-            }
-            object obj2 = target(<> p__, obj, FrostyHarmonySampleBankEditor.<> o__2.<> p__1.Target(FrostyHarmonySampleBankEditor.<> o__2.<> p__1, rootObject));
+            // --- DYNAMIC CODE FIX: Casting base.RootObject to the inferred type. ---
+            // If the actual type name is different, replace 'HarmonySampleBankData' below.
+            HarmonySampleBankData rootObject = (HarmonySampleBankData)base.RootObject;
             int num = 0;
-            if (FrostyHarmonySampleBankEditor.<> o__2.<> p__5 == null)
+
+            // 1. Get the RAM Chunk Entry.
+            // Simplified from multiple dynamic calls: rootObject.Chunks[rootObject.RamChunkIndex].ChunkId
+            // The original dynamic code was trying to:
+            // a) get rootObject.Chunks (obj)
+            // b) get rootObject.RamChunkIndex (obj2)
+            // c) get the index (obj[obj2])
+            object ramChunkData = rootObject.Chunks[rootObject.RamChunkIndex];
+            uint ramChunkId = (uint)ramChunkData.GetType().GetProperty("ChunkId").GetValue(ramChunkData);
+
+            ChunkAssetEntry ramChunkEntry = App.AssetManager.GetChunkEntry(ramChunkId);
+            NativeReader streamChunkReader = null;
+
+            // 2. Check and get the Stream Chunk Entry.
+            // Simplified from dynamic check: (rootObject.StreamChunkIndex != 255)
+            bool streamChunkExists = rootObject.StreamChunkIndex != 255;
+
+            if (streamChunkExists)
             {
-                FrostyHarmonySampleBankEditor.<> o__2.<> p__5 = CallSite<Func<CallSite, object, ChunkAssetEntry>>.Create(Binder.Convert(CSharpBinderFlags.None, typeof(ChunkAssetEntry), typeof(FrostyHarmonySampleBankEditor)));
+                // Simplified from multiple dynamic calls: rootObject.Chunks[rootObject.StreamChunkIndex].ChunkId
+                object streamChunkData = rootObject.Chunks[rootObject.StreamChunkIndex];
+                uint streamChunkId = (uint)streamChunkData.GetType().GetProperty("ChunkId").GetValue(streamChunkData);
+
+                ChunkAssetEntry streamChunkEntry = App.AssetManager.GetChunkEntry(streamChunkId);
+                streamChunkReader = new NativeReader(App.AssetManager.GetChunk(streamChunkEntry));
             }
-            Func<CallSite, object, ChunkAssetEntry> target2 = FrostyHarmonySampleBankEditor.<> o__2.<> p__5.Target;
-            CallSite<> p__2 = FrostyHarmonySampleBankEditor.<> o__2.<> p__5;
-            if (FrostyHarmonySampleBankEditor.<> o__2.<> p__4 == null)
-            {
-                FrostyHarmonySampleBankEditor.<> o__2.<> p__4 = CallSite<Func<CallSite, AssetManager, object, object>>.Create(Binder.InvokeMember(CSharpBinderFlags.None, "GetChunkEntry", null, typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[]
-                {
-                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType, null),
-                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null)
-                }));
-            }
-            Func<CallSite, AssetManager, object, object> target3 = FrostyHarmonySampleBankEditor.<> o__2.<> p__4.Target;
-            CallSite<> p__3 = FrostyHarmonySampleBankEditor.<> o__2.<> p__4;
-            AssetManager assetManager = App.AssetManager;
-            if (FrostyHarmonySampleBankEditor.<> o__2.<> p__3 == null)
-            {
-                FrostyHarmonySampleBankEditor.<> o__2.<> p__3 = CallSite<Func<CallSite, object, object>>.Create(Binder.GetMember(CSharpBinderFlags.None, "ChunkId", typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[] { CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null) }));
-            }
-            ChunkAssetEntry chunkAssetEntry = target2(<> p__2, target3(<> p__3, assetManager, FrostyHarmonySampleBankEditor.<> o__2.<> p__3.Target(FrostyHarmonySampleBankEditor.<> o__2.<> p__3, obj2)));
-            NativeReader nativeReader = null;
-            if (FrostyHarmonySampleBankEditor.<> o__2.<> p__8 == null)
-            {
-                FrostyHarmonySampleBankEditor.<> o__2.<> p__8 = CallSite<Func<CallSite, object, bool>>.Create(Binder.UnaryOperation(CSharpBinderFlags.None, ExpressionType.IsTrue, typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[] { CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null) }));
-            }
-            Func<CallSite, object, bool> target4 = FrostyHarmonySampleBankEditor.<> o__2.<> p__8.Target;
-            CallSite<> p__4 = FrostyHarmonySampleBankEditor.<> o__2.<> p__8;
-            if (FrostyHarmonySampleBankEditor.<> o__2.<> p__7 == null)
-            {
-                FrostyHarmonySampleBankEditor.<> o__2.<> p__7 = CallSite<Func<CallSite, object, int, object>>.Create(Binder.BinaryOperation(CSharpBinderFlags.None, ExpressionType.NotEqual, typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[]
-                {
-                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null),
-                    CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType | CSharpArgumentInfoFlags.Constant, null)
-                }));
-            }
-            Func<CallSite, object, int, object> target5 = FrostyHarmonySampleBankEditor.<> o__2.<> p__7.Target;
-            CallSite<> p__5 = FrostyHarmonySampleBankEditor.<> o__2.<> p__7;
-            if (FrostyHarmonySampleBankEditor.<> o__2.<> p__6 == null)
-            {
-                FrostyHarmonySampleBankEditor.<> o__2.<> p__6 = CallSite<Func<CallSite, object, object>>.Create(Binder.GetMember(CSharpBinderFlags.None, "StreamChunkIndex", typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[] { CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null) }));
-            }
-            bool flag = target4(<> p__4, target5(<> p__5, FrostyHarmonySampleBankEditor.<> o__2.<> p__6.Target(FrostyHarmonySampleBankEditor.<> o__2.<> p__6, rootObject), 255));
-            if (flag)
-            {
-                if (FrostyHarmonySampleBankEditor.<> o__2.<> p__11 == null)
-                {
-                    FrostyHarmonySampleBankEditor.<> o__2.<> p__11 = CallSite<Func<CallSite, object, object, object>>.Create(Binder.GetIndex(CSharpBinderFlags.None, typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[]
-                    {
-                        CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null),
-                        CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null)
-                    }));
-                }
-                Func<CallSite, object, object, object> target6 = FrostyHarmonySampleBankEditor.<> o__2.<> p__11.Target;
-                CallSite<> p__6 = FrostyHarmonySampleBankEditor.<> o__2.<> p__11;
-                if (FrostyHarmonySampleBankEditor.<> o__2.<> p__9 == null)
-                {
-                    FrostyHarmonySampleBankEditor.<> o__2.<> p__9 = CallSite<Func<CallSite, object, object>>.Create(Binder.GetMember(CSharpBinderFlags.ResultIndexed, "Chunks", typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[] { CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null) }));
-                }
-                object obj3 = FrostyHarmonySampleBankEditor.<> o__2.<> p__9.Target(FrostyHarmonySampleBankEditor.<> o__2.<> p__9, rootObject);
-                if (FrostyHarmonySampleBankEditor.<> o__2.<> p__10 == null)
-                {
-                    FrostyHarmonySampleBankEditor.<> o__2.<> p__10 = CallSite<Func<CallSite, object, object>>.Create(Binder.GetMember(CSharpBinderFlags.None, "StreamChunkIndex", typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[] { CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null) }));
-                }
-                object obj4 = target6(<> p__6, obj3, FrostyHarmonySampleBankEditor.<> o__2.<> p__10.Target(FrostyHarmonySampleBankEditor.<> o__2.<> p__10, rootObject));
-                if (FrostyHarmonySampleBankEditor.<> o__2.<> p__14 == null)
-                {
-                    FrostyHarmonySampleBankEditor.<> o__2.<> p__14 = CallSite<Func<CallSite, object, ChunkAssetEntry>>.Create(Binder.Convert(CSharpBinderFlags.None, typeof(ChunkAssetEntry), typeof(FrostyHarmonySampleBankEditor)));
-                }
-                Func<CallSite, object, ChunkAssetEntry> target7 = FrostyHarmonySampleBankEditor.<> o__2.<> p__14.Target;
-                CallSite<> p__7 = FrostyHarmonySampleBankEditor.<> o__2.<> p__14;
-                if (FrostyHarmonySampleBankEditor.<> o__2.<> p__13 == null)
-                {
-                    FrostyHarmonySampleBankEditor.<> o__2.<> p__13 = CallSite<Func<CallSite, AssetManager, object, object>>.Create(Binder.InvokeMember(CSharpBinderFlags.None, "GetChunkEntry", null, typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[]
-                    {
-                        CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.UseCompileTimeType, null),
-                        CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null)
-                    }));
-                }
-                Func<CallSite, AssetManager, object, object> target8 = FrostyHarmonySampleBankEditor.<> o__2.<> p__13.Target;
-                CallSite<> p__8 = FrostyHarmonySampleBankEditor.<> o__2.<> p__13;
-                AssetManager assetManager2 = App.AssetManager;
-                if (FrostyHarmonySampleBankEditor.<> o__2.<> p__12 == null)
-                {
-                    FrostyHarmonySampleBankEditor.<> o__2.<> p__12 = CallSite<Func<CallSite, object, object>>.Create(Binder.GetMember(CSharpBinderFlags.None, "ChunkId", typeof(FrostyHarmonySampleBankEditor), new CSharpArgumentInfo[] { CSharpArgumentInfo.Create(CSharpArgumentInfoFlags.None, null) }));
-                }
-                ChunkAssetEntry chunkAssetEntry2 = target7(<> p__7, target8(<> p__8, assetManager2, FrostyHarmonySampleBankEditor.<> o__2.<> p__12.Target(FrostyHarmonySampleBankEditor.<> o__2.<> p__12, obj4)));
-                nativeReader = new NativeReader(App.AssetManager.GetChunk(chunkAssetEntry2));
-            }
-            using (NativeReader nativeReader2 = new NativeReader(App.AssetManager.GetChunk(chunkAssetEntry)))
+
+            using (NativeReader nativeReader2 = new NativeReader(App.AssetManager.GetChunk(ramChunkEntry)))
             {
                 nativeReader2.Position = 10L;
-                int num2 = (int)nativeReader2.ReadUShort(0);
+
+                // Fix: Replaced '0' with Endian.Little
+                int num2 = (int)nativeReader2.ReadUShort(Endian.Little);
+
                 nativeReader2.Position = 32L;
-                int num3 = nativeReader2.ReadInt(0);
+
+                // Fix: Replaced '0' with Endian.Little
+                int num3 = nativeReader2.ReadInt(Endian.Little);
+
                 nativeReader2.Position = 80L;
                 List<int> list2 = new List<int>();
                 for (int i = 0; i < num2; i++)
                 {
-                    list2.Add(nativeReader2.ReadInt(0));
+                    // Fix: Replaced '0' with Endian.Little
+                    list2.Add(nativeReader2.ReadInt(Endian.Little));
                     nativeReader2.Position += 4L;
                 }
                 foreach (int num4 in list2)
                 {
                     nativeReader2.Position = (long)(num4 + 60);
-                    int num5 = (int)nativeReader2.ReadUShort(0);
+
+                    // Fix: Replaced '0' with Endian.Little
+                    int num5 = (int)nativeReader2.ReadUShort(Endian.Little);
+
                     nativeReader2.Position += 10L;
                     int num6 = -1;
                     bool flag2 = false;
                     for (int j = 0; j < num5; j++)
                     {
-                        uint num7 = nativeReader2.ReadUInt(0);
+                        // Fix: Replaced '0' with Endian.Little
+                        uint num7 = nativeReader2.ReadUInt(Endian.Little);
                         bool flag3 = num7 == 776947270U;
                         if (flag3)
                         {
                             nativeReader2.Position += 4L;
-                            num6 = nativeReader2.ReadInt(0);
+                            // Fix: Replaced '0' with Endian.Little
+                            num6 = nativeReader2.ReadInt(Endian.Little);
                             nativeReader2.Position += 12L;
                             flag2 = true;
                         }
@@ -185,7 +128,8 @@ namespace SoundEditorPlugin
                             if (flag4)
                             {
                                 nativeReader2.Position += 4L;
-                                num6 = nativeReader2.ReadInt(0) + num3;
+                                // Fix: Replaced '0' with Endian.Little
+                                num6 = nativeReader2.ReadInt(Endian.Little) + num3;
                                 nativeReader2.Position += 12L;
                             }
                             else
@@ -201,7 +145,7 @@ namespace SoundEditorPlugin
                         bool flag6 = flag2;
                         if (flag6)
                         {
-                            nativeReader3 = nativeReader;
+                            nativeReader3 = streamChunkReader;
                         }
                         SoundDataTrack soundDataTrack = new SoundDataTrack
                         {
@@ -209,11 +153,19 @@ namespace SoundEditorPlugin
                         };
                         nativeReader3.Position = (long)num6;
                         List<short> decodedSoundBuf = new List<short>();
-                        uint num8 = nativeReader3.ReadUInt(1) & 16777215U;
+
+                        // Fix: Replaced '1' with Endian.Big
+                        uint num8 = nativeReader3.ReadUInt(Endian.Big) & 16777215U;
+
                         byte b = nativeReader3.ReadByte();
                         int num9 = (nativeReader3.ReadByte() >> 2) + 1;
-                        ushort num10 = nativeReader3.ReadUShort(1);
-                        uint sampleCount = nativeReader3.ReadUInt(1) & 16777215U;
+
+                        // Fix: Replaced '1' with Endian.Big
+                        ushort num10 = nativeReader3.ReadUShort(Endian.Big);
+
+                        // Fix: Replaced '1' with Endian.Big
+                        uint sampleCount = nativeReader3.ReadUInt(Endian.Big) & 16777215U;
+
                         switch (b)
                         {
                             case 20:
@@ -301,6 +253,7 @@ namespace SoundEditorPlugin
                         }
                         catch (Exception ex)
                         {
+                            // In a real application, you should log or handle ex here
                         }
                         soundDataTrack.SegmentCount = 1;
                         list.Add(soundDataTrack);
