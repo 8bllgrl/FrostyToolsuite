@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using FrostySdk.IO; 
+using FrostySdk.IO;
 
 namespace SoundEditorPlugin.Playback
 {
@@ -9,111 +9,103 @@ namespace SoundEditorPlugin.Playback
     {
         public static short[] Decode(byte[] soundBuffer)
         {
-            short[] array7;
-            using (NativeReader nativeReader = new NativeReader(new MemoryStream(soundBuffer)))
+            using (NativeReader reader = new NativeReader(new MemoryStream(soundBuffer)))
             {
-                // Corrected: Replaced '0' with Endian.Little
-                nativeReader.ReadUShort(Endian.Little);
+                // Explicitly reading blockType using Little Endian (implied by decompiled code '0')
+                ushort blockType = reader.ReadUShort(Endian.Little);
 
-                // Corrected: Replaced '1' with Endian.Big
-                ushort num = nativeReader.ReadUShort(Endian.Big); // blockSize (initial)
+                ushort blockSize = reader.ReadUShort(Endian.Big);
+                byte compressionType = reader.ReadByte();
 
-                nativeReader.ReadByte();
+                int channelCount = (reader.ReadByte() >> 2) + 1;
+                ushort sampleRate = reader.ReadUShort(Endian.Big);
+                int totalSampleCount = reader.ReadInt(Endian.Big) & 0x00ffffff;
 
-                int num2 = (nativeReader.ReadByte() >> 2) + 1; // Channel Count
+                List<short>[] channels = new List<short>[channelCount];
+                for (int i = 0; i < channelCount; i++)
+                    channels[i] = new List<short>();
 
-                // Corrected: Replaced '1' with Endian.Big
-                nativeReader.ReadUShort(Endian.Big); // Sample Rate (ignored)
-
-                // Corrected: Replaced '1' with Endian.Big
-                nativeReader.ReadInt(Endian.Big); // Total Sample Count (ignored)
-
-                List<short>[] array = new List<short>[num2];
-                for (int i = 0; i < num2; i++)
+                while (reader.Position <= reader.Length)
                 {
-                    array[i] = new List<short>();
-                }
+                    // Explicitly reading blockType using Little Endian
+                    blockType = reader.ReadUShort(Endian.Little);
 
-                while (nativeReader.Position <= nativeReader.Length)
-                {
-                    // Corrected: Replaced '0' with Endian.Little
-                    int num3 = (int)nativeReader.ReadUShort(Endian.Little); // blockType
+                    blockSize = reader.ReadUShort(Endian.Big);
 
-                    // Corrected: Replaced '1' with Endian.Big
-                    num = nativeReader.ReadUShort(Endian.Big); // blockSize
-
-                    if (num3 == 69) // 0x45 (End marker)
-                    {
+                    if (blockType == 0x45)
                         break;
-                    }
 
-                    // Corrected: Replaced '1' with Endian.Big
-                    uint num4 = nativeReader.ReadUInt(Endian.Big); // samples in block
+                    uint samples = reader.ReadUInt(Endian.Big);
 
-                    short[] array2 = new short[32]; // Decompression buffer
-                    int[] array3 = new int[] { 0, 240, 460, 392 }; // Predictor constants 1
-                    int[] array4 = new int[] { 0, 0, -208, -220 }; // Predictor constants 2
+                    byte[] buffer = null;
+                    short[] blockBuffer = new short[32];
+                    int[] consts1 = new int[4] { 0, 240, 460, 392 };
+                    int[] consts2 = new int[4] { 0, 0, -208, -220 };
 
-                    for (int j = 0; j < (int)(num / 76) / num2; j++)
+                    for (int i = 0; i < blockSize / 76 / channelCount; i++)
                     {
-                        for (int k = 0; k < num2; k++) // Channel Loop
+                        for (int j = 0; j < channelCount; j++)
                         {
-                            byte[] array5 = nativeReader.ReadBytes(76); // Read 76-byte ADPCM block
+                            buffer = reader.ReadBytes(76);
 
-                            for (int l = 0; l < 4; l++) // 4 segments per block
+                            for (int k = 0; k < 4; k++)
                             {
-                                // Initialize previous samples and get indices
-                                array2[0] = (short)((int)(array5[l * 4] & 240) | ((int)array5[l * 4 + 1] << 8));
-                                array2[1] = (short)((int)(array5[l * 4 + 2] & 240) | ((int)array5[l * 4 + 3] << 8));
+                                blockBuffer[0] = (short)(buffer[k * 4 + 0] & 0xF0 | buffer[k * 4 + 1] << 8);
+                                blockBuffer[1] = (short)(buffer[k * 4 + 2] & 0xF0 | buffer[k * 4 + 3] << 8);
 
-                                int num5 = (int)(array5[l * 4] & 15);     // Predictor index
-                                int num6 = (int)(array5[l * 4 + 2] & 15); // Scale factor index
+                                int index4 = buffer[k * 4] & 0x0F;
+                                int num10 = buffer[k * 4 + 2] & 0x0F;
+                                int index5 = 2;
 
-                                for (int m = 2; m < 32; m += 2) // Decompress 30 samples (15 pairs)
+                                while (index5 < 32)
                                 {
-                                    // First sample (even index m)
-                                    int num7 = (array5[12 + l + m * 2] & 240) >> 4;
-                                    if (num7 > 7) { num7 -= 16; }
+                                    int num11 = (buffer[12 + k + index5 * 2] & 240) >> 4;
+                                    if (num11 > 7)
+                                        num11 -= 16;
 
-                                    int num8 = (int)array2[m - 1] * array3[num5] + (int)array2[m - 2] * array4[num5];
-                                    array2[m] = (short)(num8 + (num7 << 20 - num6) + 128 >> 8);
+                                    int num12 = blockBuffer[index5 - 1] * consts1[index4] + blockBuffer[index5 - 2] * consts2[index4];
 
-                                    if (array2[m] > short.MaxValue) { array2[m] = short.MaxValue; }
-                                    else if (array2[m] < short.MinValue) { array2[m] = short.MinValue; }
+                                    blockBuffer[index5] = (short)(num12 + (num11 << 20 - num10) + 128 >> 8);
+                                    if (blockBuffer[index5] > short.MaxValue)
+                                        blockBuffer[index5] = short.MaxValue;
+                                    else if (blockBuffer[index5] < short.MinValue)
+                                        blockBuffer[index5] = short.MinValue;
 
-                                    // Second sample (odd index m+1)
-                                    int num9 = (int)(array5[12 + l + m * 2] & 15);
-                                    if (num9 > 7) { num9 -= 16; }
+                                    int num13 = buffer[12 + k + index5 * 2] & 15;
+                                    if (num13 > 7)
+                                        num13 -= 16;
 
-                                    int num10 = (int)array2[m] * array3[num5] + (int)array2[m - 1] * array4[num5];
-                                    array2[m + 1] = (short)(num10 + (num9 << 20 - num6) + 128 >> 8);
+                                    int num14 = blockBuffer[index5] * consts1[index4] + blockBuffer[index5 - 1] * consts2[index4];
 
-                                    if (array2[m + 1] > short.MaxValue) { array2[m + 1] = short.MaxValue; }
-                                    else if (array2[m + 1] < short.MinValue) { array2[m + 1] = short.MinValue; }
+                                    blockBuffer[index5 + 1] = (short)(num14 + (num13 << 20 - num10) + 128 >> 8);
+                                    if (blockBuffer[index5 + 1] > short.MaxValue)
+                                        blockBuffer[index5 + 1] = short.MaxValue;
+                                    else if (blockBuffer[index5 + 1] < short.MinValue)
+                                        blockBuffer[index5 + 1] = short.MinValue;
+
+                                    index5 += 2;
                                 }
 
-                                array[k].AddRange(array2);
+                                channels[j].AddRange(blockBuffer);
                             }
 
-                            uint num11 = ((num4 < 128U) ? num4 : 128U);
-                            num4 -= num11;
+                            uint sampleSize = samples < 128 ? samples : 128;
+                            samples -= sampleSize;
                         }
                     }
                 }
 
-                // Interleave the channel data
-                short[] array6 = new short[array[0].Count * num2];
-                for (int n = 0; n < array[0].Count; n++)
+                short[] outBuffer = new short[channels[0].Count * channelCount];
+                for (int i = 0; i < channels[0].Count; i++)
                 {
-                    for (int num12 = 0; num12 < num2; num12++)
+                    for (int j = 0; j < channelCount; j++)
                     {
-                        array6[n * num2 + num12] = array[num12][n];
+                        outBuffer[i * channelCount + j] = channels[j][i];
                     }
                 }
 
-                array7 = array6;
+                return outBuffer;
             }
-            return array7;
         }
     }
 }
