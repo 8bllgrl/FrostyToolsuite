@@ -1,16 +1,19 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
-  <PropertyGroup>
-    <Configurations>Developer - Debug;Release - Alpha;Release - Beta;Release - Final</Configurations>
-    <Platforms>x64</Platforms>
-    <TargetFrameworks>net48</TargetFrameworks>
-    <AssemblyTitle>SoundEditorPlugin</AssemblyTitle>
-    <Product>SoundEditorPlugin</Product>
-    <Copyright>Copyright ©  2020</Copyright>
-    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <UseWPF>true</UseWPF>
-    <OutputType>Library</OutputType>
-  </PropertyGroup>
+	<PropertyGroup>
+		<Configurations>Developer - Debug;Release - Alpha;Release - Beta;Release - Final</Configurations>
+		<Platforms>x64</Platforms>
+		<TargetFrameworks>net48</TargetFrameworks>
+
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
+		<AssemblyTitle>SoundEditorPlugin</AssemblyTitle>
+		<Product>SoundEditorPlugin</Product>
+		<Copyright>Copyright ©  2020</Copyright>
+		<CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+		<UseWPF>true</UseWPF>
+		<OutputType>Library</OutputType>
+	</PropertyGroup>
   
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Developer - Debug|x64'">
     <DebugSymbols>true</DebugSymbols>

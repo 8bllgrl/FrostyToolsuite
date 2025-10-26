@@ -115,6 +115,7 @@
     <Compile Include="IO\EbxWriter.cs" />
     <Compile Include="IO\EbxYamlWriter.cs" />
     <Compile Include="IO\EbxXmlWriter.cs" />
+    <Compile Include="IO\Endian.cs" />
     <Compile Include="IO\LegacyBinarySbReader.cs" />
     <Compile Include="IO\NativeReader.cs" />
     <Compile Include="DbObject.cs" />
@@ -173,7 +174,7 @@
     <Content Include="Profiles\DragonAgeSDK.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-	<!--<Content Include="Profiles\DragonAgeVeilguardSDK.dll">
+    <!--<Content Include="Profiles\DragonAgeVeilguardSDK.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content-->
     <Content Include="Profiles\Fifa17SDK.dll">
