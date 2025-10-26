@@ -2,6 +2,7 @@
 using Frosty.Core.Controls.Editors;
 using FrostySdk.Attributes;
 using FrostySdk.IO;
+using System;
 
 namespace SoundEditorPlugin
 {
@@ -18,13 +19,16 @@ namespace SoundEditorPlugin
 
         public override void Load()
         {
-            Volume = Config.Get<float>("SoundVolume", 20.0f);
+            // Restoring the optional arguments as seen in the decompiled code: contextId=0, context=null
+            Volume = Config.Get<float>("SoundVolume", 20.0f, 0, null);
         }
 
         public override void Save()
         {
-            Config.Add("SoundVolume", Volume);
-            Config.Save();
+            // Restoring the optional arguments as seen in the decompiled code: contextId=0, context=null
+            Config.Add("SoundVolume", Volume, 0, null);
+            // The decompiled version passes an empty string as context to Config.Save().
+            Config.Save("");
         }
 
         public override bool Validate() => Volume >= 0.0f && Volume <= 100.0f;
