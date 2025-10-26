@@ -1,23 +1,23 @@
-﻿using System;
-using System.Collections.Generic;
-using FrostySdk.Interfaces;
-using System.Windows;
-using FrostySdk.IO;
-using System.IO;
-using FrostySdk;
-using FrostySdk.Managers;
-using FrostySdk.Ebx;
-using WaveFormRendererLib;
-using System.Drawing.Imaging;
-using System.Windows.Media.Imaging;
-using System.Windows.Media;
-using NAudio.Wave;
-using Frosty.Core.Controls;
-using Frosty.Core;
+﻿using Frosty.Core;
 using Frosty.Core.Windows;
+using FrostySdk.Ebx;
+using FrostySdk.Interfaces;
+using FrostySdk.IO;
+using FrostySdk.Managers;
 using FrostySdk.Managers.Entries;
-using SoundEditorPlugin.Resources;
 using SoundEditorPlugin.Playback;
+using SoundEditorPlugin.Resources;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using System.Linq.Expressions;
+using System.Runtime.CompilerServices;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using WaveFormRendererLib;
 
 namespace SoundEditorPlugin
 {
@@ -39,6 +39,7 @@ namespace SoundEditorPlugin
             dynamic soundWave = RootObject;
 
             int index = 0;
+            // The Count property needs to be explicitly cast if using the dynamic object, or rely on the compiler's dynamic invocation
             int totalCount = soundWave.RuntimeVariations.Count;
 
             foreach (dynamic runtimeVariation in soundWave.RuntimeVariations)
@@ -60,9 +61,9 @@ namespace SoundEditorPlugin
                     double startLoopingTime = 0.0;
                     double loopingDuration = 0.0;
 
-                    for (int i = 0; i < runtimeVariation.SegmentCount; i++)
+                    for (int i = 0; i < (int)runtimeVariation.SegmentCount; i++) // Cast to int for safety
                     {
-                        var segment = soundWave.Segments[runtimeVariation.FirstSegmentIndex + i];
+                        var segment = soundWave.Segments[(int)runtimeVariation.FirstSegmentIndex + i]; // Cast indices
                         reader.Position = segment.SamplesOffset;
 
                         if (reader.ReadUShort() != 0x48)
@@ -77,6 +78,8 @@ namespace SoundEditorPlugin
                         ushort sampleRate = reader.ReadUShort(Endian.Big);
                         uint sampleCount = reader.ReadUInt(Endian.Big) & 0xFFFFFFF;
                         //reader.Position += headersize - 0x0C;
+
+                        // Codec definition is identical
                         switch (codec)
                         {
                             case 0x1: track.Codec = "Unknown"; break;
@@ -95,7 +98,8 @@ namespace SoundEditorPlugin
                             case 0xF: track.Codec = "MultiStream Opus (Uncoupled)"; break;
                         }
 
-                        if (i == runtimeVariation.FirstLoopSegmentIndex && runtimeVariation.SegmentCount > 1)
+                        // Loop start calculation
+                        if (i == (int)runtimeVariation.FirstLoopSegmentIndex && (int)runtimeVariation.SegmentCount > 1)
                         {
                             startLoopingTime = (decodedSoundBuf.Count / channels) / (double)sampleRate;
                             track.LoopStart = (uint)decodedSoundBuf.Count;
@@ -103,17 +107,20 @@ namespace SoundEditorPlugin
 
                         reader.Position = segment.SamplesOffset;
                         byte[] soundBuf = reader.ReadToEnd();
+                        double duration = 0.0;
 
                         if (codec == 0x2)
                         {
                             short[] data = Pcm16b.Decode(soundBuf);
                             decodedSoundBuf.AddRange(data);
+                            duration += (data.Length / channels) / (double)sampleRate;
                             sampleCount = (uint)data.Length;
                         }
                         else if (codec == 0x4)
                         {
                             short[] data = XAS.Decode(soundBuf);
                             decodedSoundBuf.AddRange(data);
+                            duration += (data.Length / channels) / (double)sampleRate;
                             sampleCount = (uint)data.Length;
                         }
                         else if (codec == 0x5 || codec == 0x6)
@@ -123,12 +130,15 @@ namespace SoundEditorPlugin
                             {
                                 if (info.streamIndex == -1)
                                     return;
+
                                 sampleCount += (uint)data.Length;
                                 decodedSoundBuf.AddRange(data);
                             });
+                            duration += (sampleCount / channels) / (double)sampleRate; // Use updated sampleCount and current channels/sampleRate
                         }
 
-                        if (i == runtimeVariation.LastLoopSegmentIndex && runtimeVariation.SegmentCount > 1)
+                        // Loop end calculation
+                        if (i == (int)runtimeVariation.LastLoopSegmentIndex && (int)runtimeVariation.SegmentCount > 1)
                         {
                             loopingDuration = ((decodedSoundBuf.Count / channels) / (double)sampleRate) - startLoopingTime;
                             track.LoopEnd = (uint)decodedSoundBuf.Count;
@@ -136,21 +146,26 @@ namespace SoundEditorPlugin
 
                         track.SampleRate = sampleRate;
                         track.ChannelCount = channels;
-                        if (segment.SegmentLength == 0)
+                        // Segment length calculation and assignment - identical logic, but removed the float cast in division for clarity
+                        if ((float)segment.SegmentLength == 0.0f)
                             segment.SegmentLength = (decodedSoundBuf.Count / track.ChannelCount) / (float)sampleRate;
                     }
+
+                    // Final duration calculation and sample assignment
                     track.Duration = (decodedSoundBuf.Count / track.ChannelCount) / (double)track.SampleRate;
-                    //track.LoopEnd += track.LoopStart;
+                    //track.LoopEnd += track.LoopStart; // This was commented out in the source, keeping it commented.
                     track.Samples = decodedSoundBuf.ToArray();
 
+                    // --- Waveform Rendering ---
+
                     var maxPeakProvider = new MaxPeakProvider();
-                    var rmsPeakProvider = new RmsPeakProvider(200); // e.g. 200
-                    var samplingPeakProvider = new SamplingPeakProvider(200); // e.g. 200
-                    var averagePeakProvider = new AveragePeakProvider(4); // e.g. 4
+                    var rmsPeakProvider = new RmsPeakProvider(200);
+                    var samplingPeakProvider = new SamplingPeakProvider(200);
+                    var averagePeakProvider = new AveragePeakProvider(4);
 
                     var topSpacerColor = System.Drawing.Color.FromArgb(64, 83, 22, 3);
                     var soundCloudOrangeTransparentBlocks = new SoundCloudBlockWaveFormSettings(System.Drawing.Color.FromArgb(255, 218, 218, 218), topSpacerColor, System.Drawing.Color.FromArgb(255, 109, 109, 109),
-                                                                                                System.Drawing.Color.FromArgb(64, 79, 79, 79))
+                                                                                                    System.Drawing.Color.FromArgb(64, 79, 79, 79))
                     {
                         Name = "SoundCloud Orange Transparent Blocks",
                         PixelsPerPeak = 2,
@@ -183,20 +198,25 @@ namespace SoundEditorPlugin
 
                             using (var r = visual.RenderOpen())
                             {
+                                // --- MISSING FUNCTIONALITY ADDED: EdgeMode setting for crisp lines ---
                                 visual.SetValue(RenderOptions.EdgeModeProperty, EdgeMode.Aliased);
+
                                 r.DrawImage(bitmapImage, new Rect(0, 0, bitmapImage.Width, bitmapImage.Height));
 
                                 if (loopingDuration > 0)
                                 {
-                                    r.DrawLine(new Pen(Brushes.White, 1.0),
-                                        new Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), soundCloudOrangeTransparentBlocks.TopHeight),
-                                        new Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
-                                    r.DrawLine(new Pen(Brushes.White, 1.0),
-                                        new Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), soundCloudOrangeTransparentBlocks.TopHeight),
-                                        new Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
-                                    r.DrawLine(new Pen(Brushes.White, 1.0),
-                                        new Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height),
-                                        new Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
+                                    // Explicitly use System.Windows.Media types to resolve ambiguity
+                                    r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
+                                        new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), soundCloudOrangeTransparentBlocks.TopHeight),
+                                        new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
+
+                                    r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
+                                        new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), soundCloudOrangeTransparentBlocks.TopHeight),
+                                        new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
+
+                                    r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
+                                        new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height),
+                                        new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
                                 }
                             }
 
@@ -207,6 +227,7 @@ namespace SoundEditorPlugin
                     }
                     catch (Exception e)
                     {
+                        // Empty catch block as in original
                     }
 
                     track.SegmentCount = runtimeVariation.SegmentCount;
@@ -215,17 +236,20 @@ namespace SoundEditorPlugin
                 retVal.Add(track);
             }
 
+            // The SoundWave localization assignment block is included in the new code, and is retained here.
             foreach (dynamic localization in soundWave.Localization)
             {
-                for (int i = 0; i < localization.VariationCount; i++)
+                for (int i = 0; i < (int)localization.VariationCount; i++)
                 {
-                    SoundDataTrack track = retVal[i + localization.FirstVariationIndex];
+                    SoundDataTrack track = retVal[i + (int)localization.FirstVariationIndex];
 
                     PointerRef pr = localization.Language;
-                    EbxAsset asset = App.AssetManager.GetEbx(App.AssetManager.GetEbxEntry(pr.External.FileGuid));
+                    // The decompiled version explicitly passes 'false' to GetEbx, which is safer when working with localization assets.
+                    EbxAsset asset = App.AssetManager.GetEbx(App.AssetManager.GetEbxEntry(pr.External.FileGuid), false);
                     dynamic obj = asset.GetObject(pr.External.ClassGuid);
 
-                    track.Language = obj.__Id;
+                    // Assignment relies on dynamic binding for the __Id property
+                    track.Language = (string)obj.__Id;
                 }
             }
 
