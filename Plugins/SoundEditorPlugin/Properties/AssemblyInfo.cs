@@ -7,6 +7,7 @@ using System.Runtime.Versioning;
 using System.Windows;
 using Frosty.Core.Attributes;
 using SoundEditorPlugin;
+using SoundEditorPlugin.AssetDefinitions;
 using SoundEditorPlugin.Resources;
 
 [assembly: AssemblyVersion("1.0.0.0")]

@@ -4,7 +4,7 @@ using FrostySdk;
 using FrostySdk.Interfaces;
 using System.Windows.Media;
 
-namespace SoundEditorPlugin
+namespace SoundEditorPlugin.AssetDefinitions
 {
     public class SoundWaveAssetOverride : BaseTypeOverride
     {
@@ -59,13 +59,6 @@ namespace SoundEditorPlugin
         public override FrostyAssetEditor GetEditor(ILogger logger)
         {
             return new FrostyHarmonySampleBankEditor(logger);
-        }
-    }
-    public class OctaneAssetDefinition : SoundAssetDefinition
-    {
-        public override FrostyAssetEditor GetEditor(ILogger logger)
-        {
-            return new FrostyOctaneSoundEditor(logger);
         }
     }
 }
