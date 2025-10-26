@@ -2,7 +2,7 @@
 using System.Windows;
 using SharpDX.XAudio2;
 
-namespace SoundEditorPlugin
+namespace SoundEditorPlugin.Playback
 {
     public class AudioPlayer : IDisposable
     {

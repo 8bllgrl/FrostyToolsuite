@@ -23,7 +23,8 @@ using FrostySdk.Managers.Entries;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using WaveFormatExtensible = SharpDX.Multimedia.WaveFormatExtensible;
-using SoundEditorPlugin.WAV; // <-- Added this missing dependency for export classes
+using SoundEditorPlugin.WAV;
+using SoundEditorPlugin.Playback;
 
 namespace SoundEditorPlugin
 {
@@ -190,9 +191,7 @@ namespace SoundEditorPlugin
             if (!sfd.ShowDialog())
                 return;
 
-            // This section handles multiple selected tracks for batch export.
-            // It relies on the WAV classes defined in WAV.cs to function.
-            for (int trackIndex = 0; trackIndex < tracksListBox.SelectedItems.Count; trackIndex++)
+            for (int trackIndex = 0; trackIndex < tracksListBox.SelectedItems.Count; trackIndex++)
             {
                 SoundDataTrack indexedTrack = (SoundDataTrack)tracksListBox.SelectedItems[trackIndex];
                 String indexedFilename = sfd.FileName.Replace(".wav", " " + trackIndex + ".wav");
@@ -205,8 +204,7 @@ namespace SoundEditorPlugin
         {
             FrostyTaskWindow.Show("Exporting Sound", "", task =>
             {
-                // These are the custom types required for WAV writing.
-                WAVFormatChunk fmt = new WAVFormatChunk(WAVFormatChunk.DataFormats.WAVE_FORMAT_PCM, (ushort)track.ChannelCount, (uint)track.SampleRate, (uint)(track.ChannelCount * 2 * track.SampleRate), (ushort)(2 * track.ChannelCount), 16);
+                WAVFormatChunk fmt = new WAVFormatChunk(WAVFormatChunk.DataFormats.WAVE_FORMAT_PCM, (ushort)track.ChannelCount, (uint)track.SampleRate, (uint)(track.ChannelCount * 2 * track.SampleRate), (ushort)(2 * track.ChannelCount), 16);
                 List<WAVDataFrame> frames = new List<WAVDataFrame>();
 
                 for (int i = 0; i < track.Samples.Length / track.ChannelCount; i++)

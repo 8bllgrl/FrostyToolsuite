@@ -17,6 +17,7 @@ using Frosty.Core;
 using Frosty.Core.Windows;
 using FrostySdk.Managers.Entries;
 using SoundEditorPlugin.Resources;
+using SoundEditorPlugin.Playback;
 
 namespace SoundEditorPlugin
 {

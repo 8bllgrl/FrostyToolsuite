@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 
-namespace SoundEditorPlugin
+namespace SoundEditorPlugin.Playback
 {
     public static class EALayer3
     {

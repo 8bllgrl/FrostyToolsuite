@@ -5,7 +5,7 @@ using SharpDX;
 using SharpDX.Multimedia;
 using SharpDX.XAudio2;
 
-namespace SoundEditorPlugin
+namespace SoundEditorPlugin.Playback
 {
     public class SoundWave : IDisposable
     {
@@ -16,9 +16,9 @@ namespace SoundEditorPlugin
         public event RoutedEventHandler OnFinishedPlaying;
 
         // Progress calculation aligned with decompiled casting logic for samples and channels
-        public double Progress => (voice.State.SamplesPlayed - (this.loopPtr / (long)track.ChannelCount) < 0L)
-            ? (double)voice.State.SamplesPlayed / (double)(SampleCount / (long)track.ChannelCount)
-            : (double)(voice.State.SamplesPlayed - (this.loopPtr / (long)track.ChannelCount)) / (double)(SampleCount / (long)track.ChannelCount);
+        public double Progress => voice.State.SamplesPlayed - loopPtr / track.ChannelCount < 0L
+            ? voice.State.SamplesPlayed / (double)(SampleCount / track.ChannelCount)
+            : (voice.State.SamplesPlayed - loopPtr / track.ChannelCount) / (double)(SampleCount / track.ChannelCount);
 
         public long SampleCount => track.Samples.Length;
 
@@ -42,7 +42,7 @@ namespace SoundEditorPlugin
                 case 2: format.ChannelMask = (Speakers)3; break;
                 case 4: format.ChannelMask = (Speakers)51; break;
                 case 6: format.ChannelMask = (Speakers)63; break;
-                default: format.ChannelMask = (Speakers)0; break;
+                default: format.ChannelMask = 0; break;
             }
 
             //ORIGINAL:
@@ -73,9 +73,9 @@ namespace SoundEditorPlugin
 
         private void Voice_BufferEnd(IntPtr obj)
         {
-            if ((long)bufferPtr < SampleCount)
+            if (bufferPtr < SampleCount)
             {
-                int bufferSize = (SampleCount - bufferPtr > MAX_BUFFER_SIZE * track.ChannelCount)
+                int bufferSize = SampleCount - bufferPtr > MAX_BUFFER_SIZE * track.ChannelCount
                     ? MAX_BUFFER_SIZE * track.ChannelCount
                     : (int)(SampleCount - bufferPtr);
 
@@ -96,9 +96,9 @@ namespace SoundEditorPlugin
                     bufferPtr++;
 
                     // Loop logic using corrected long casts
-                    if (track.LoopEnd != 0U && (long)bufferPtr == (long)track.LoopEnd)
+                    if (track.LoopEnd != 0U && bufferPtr == track.LoopEnd)
                     {
-                        loopPtr += (long)bufferPtr - (long)track.LoopStart;
+                        loopPtr += bufferPtr - track.LoopStart;
                         loopCount++;
 
                         bufferPtr = (int)track.LoopStart;

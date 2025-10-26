@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using FrostySdk.IO;
 
-namespace SoundEditorPlugin
+namespace SoundEditorPlugin.Playback
 {
     public static class XAS
     {
@@ -42,7 +42,7 @@ namespace SoundEditorPlugin
                     int[] consts1 = new int[4] { 0, 240, 460, 392 };
                     int[] consts2 = new int[4] { 0, 0, -208, -220 };
 
-                    for (int i = 0; i < (blockSize / 76 / channelCount); i++)
+                    for (int i = 0; i < blockSize / 76 / channelCount; i++)
                     {
                         for (int j = 0; j < channelCount; j++)
                         {
@@ -53,13 +53,13 @@ namespace SoundEditorPlugin
                                 blockBuffer[0] = (short)(buffer[k * 4 + 0] & 0xF0 | buffer[k * 4 + 1] << 8);
                                 blockBuffer[1] = (short)(buffer[k * 4 + 2] & 0xF0 | buffer[k * 4 + 3] << 8);
 
-                                int index4 = (int)buffer[k * 4] & 0x0F;
-                                int num10 = (int)buffer[k * 4 + 2] & 0x0F;
+                                int index4 = buffer[k * 4] & 0x0F;
+                                int num10 = buffer[k * 4 + 2] & 0x0F;
                                 int index5 = 2;
 
                                 while (index5 < 32)
                                 {
-                                    int num11 = ((int)buffer[12 + k + index5 * 2] & 240) >> 4;
+                                    int num11 = (buffer[12 + k + index5 * 2] & 240) >> 4;
                                     if (num11 > 7)
                                         num11 -= 16;
 
@@ -71,7 +71,7 @@ namespace SoundEditorPlugin
                                     else if (blockBuffer[index5] < short.MinValue)
                                         blockBuffer[index5] = short.MinValue;
 
-                                    int num13 = (int)buffer[12 + k + index5 * 2] & 15;
+                                    int num13 = buffer[12 + k + index5 * 2] & 15;
                                     if (num13 > 7)
                                         num13 -= 16;
 
@@ -89,7 +89,7 @@ namespace SoundEditorPlugin
                                 channels[j].AddRange(blockBuffer);
                             }
 
-                            uint sampleSize = (samples < 128) ? samples : 128;
+                            uint sampleSize = samples < 128 ? samples : 128;
                             samples -= sampleSize;
                         }
                     }
@@ -100,7 +100,7 @@ namespace SoundEditorPlugin
                 {
                     for (int j = 0; j < channelCount; j++)
                     {
-                        outBuffer[(i * channelCount) + j] = channels[j][i];
+                        outBuffer[i * channelCount + j] = channels[j][i];
                     }
                 }
 

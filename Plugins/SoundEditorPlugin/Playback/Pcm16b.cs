@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using FrostySdk.IO;
 
-namespace SoundEditorPlugin
+namespace SoundEditorPlugin.Playback
 {
     public static class Pcm16b
     {
@@ -49,7 +49,7 @@ namespace SoundEditorPlugin
                 {
                     for (int j = 0; j < channelCount; j++)
                     {
-                        outBuffer[(i * channelCount) + j] = channels[j][i];
+                        outBuffer[i * channelCount + j] = channels[j][i];
                     }
                 }
 
