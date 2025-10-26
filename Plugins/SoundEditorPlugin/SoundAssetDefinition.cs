@@ -68,11 +68,4 @@ namespace SoundEditorPlugin
             return new FrostyOctaneSoundEditor(logger);
         }
     }
-    public class ImpulseResponseAssetDefinition : SoundAssetDefinition
-    {
-        public override FrostyAssetEditor GetEditor(ILogger logger)
-        {
-            return new FrostyImpulseResponseEditor(logger);
-        }
-    }
 }
