@@ -61,8 +61,11 @@ namespace SoundEditorPlugin
                 dynamic soundDataChunk = newWave.Chunks[chunkIndex];
                 ChunkAssetEntry chunkEntry = App.AssetManager.GetChunkEntry(soundDataChunk.ChunkId);
 
+                logger.Log($"--- Starting Track {track.Name} (Variation Index: {index - 1}, Chunk Index: {chunkIndex}) ---");
+
                 if (chunkEntry == null)
                 {
+                    logger.Log($"Warning: Chunk Entry for ChunkId {soundDataChunk.ChunkId} is null. Skipping track.");
                     continue;
                 }
 
@@ -74,11 +77,14 @@ namespace SoundEditorPlugin
 
                     int channels = 0;
                     ushort sampleRate = 0;
+                    bool isDecoded = true; // Flag to track if the data was successfully decoded into PCM
 
                     for (int i = 0; i < (int)runtimeVariation.SegmentCount; i++)
                     {
                         var segment = newWave.Segments[(int)runtimeVariation.FirstSegmentIndex + i];
                         reader.Position = segment.SamplesOffset;
+
+                        logger.Log($"Processing Segment {i}: Offset={segment.SamplesOffset:X}, Length={segment.SegmentLength:F3}s");
 
                         // Check magic number (0x48). FIX: Must use Endian.Little (0) to match the decompiled check.
                         if (reader.ReadUShort(Endian.Little) != 0x48)
@@ -113,18 +119,23 @@ namespace SoundEditorPlugin
                             case 0xE: track.Codec = "MultiStream Opus"; break; // MultiStream Opus
                             case 0xF: track.Codec = "MultiStream Opus (Uncoupled)"; break; // MultiStream Opus (Uncoupled)
                         }
+                        logger.Log($"Segment {i} Codec: {track.Codec} (0x{codec:X}), Channels: {channels}, SampleRate: {sampleRate}");
+
 
                         // Check for loop start segment
                         if (i == (int)runtimeVariation.FirstLoopSegmentIndex && (int)runtimeVariation.SegmentCount > 1)
                         {
                             startLoopingTime = (decodedSoundBuf.Count / channels) / (double)sampleRate;
                             track.LoopStart = (uint)decodedSoundBuf.Count;
+                            logger.Log($"Loop Start Detected at Segment {i}. Current decoded samples: {track.LoopStart}");
                         }
 
                         // Rewind to segment data start and read the raw buffer for decoding
                         reader.Position = segment.SamplesOffset;
                         byte[] soundBuf = reader.ReadToEnd();
                         double duration = 0.0;
+
+                        isDecoded = true; // Assume success initially
 
                         if (codec == 0x2) // PCM 16 Big
                         {
@@ -156,10 +167,19 @@ namespace SoundEditorPlugin
                             {
                                 duration = ((double)decodedSampleCount / channels) / sampleRate;
                             }
+
+                            // CRITICAL CHECK: If EALayer3/EAOpus decode failed, treat it as not decoded
+                            if (decodedSampleCount == 0)
+                            {
+                                isDecoded = false;
+                                duration = segment.SegmentLength; // Use segment length for duration if decode failed
+                                logger.LogError($"EALayer3/EAOpus decode failed for Segment {i}. No PCM samples generated.");
+                            }
                         }
-                        else if (codec == 0xE || codec == 0xF) // MultiStream Opus (Save raw data)
+                        else if (codec == 0xE || codec == 0xF) // MultiStream Opus (Save raw data, cannot decode)
                         {
                             logger.Log("Detected MultiStream Opus audio. Saving raw data.");
+                            isDecoded = false; // Flag as not decoded
 
                             try
                             {
@@ -178,7 +198,20 @@ namespace SoundEditorPlugin
                             {
                                 logger.LogError($"Error saving raw MultiStream Opus data: {ex.Message}");
                             }
+
+                            // *** IMPORTANT: Use SegmentLength as duration when not decoded ***
+                            duration = segment.SegmentLength;
                         }
+                        else
+                        {
+                            // For any other unknown/unhandled codec
+                            isDecoded = false;
+                            duration = segment.SegmentLength;
+                            logger.Log($"Unknown/Unhandled Codec (0x{codec:X}). Using SegmentLength for duration.");
+                        }
+
+                        logger.Log($"Segment {i} Decode Result: Decoded Samples={decodedSampleCount}, Calculated Duration={duration:F3}s, Total Decoded Samples={decodedSoundBuf.Count}");
+
 
                         // Update loop end points
                         if ((int)runtimeVariation.SegmentCount > 1)
@@ -187,9 +220,11 @@ namespace SoundEditorPlugin
                             {
                                 loopingDuration += duration;
                                 track.LoopEnd += decodedSampleCount;
+                                logger.Log($"Loop End Detected at Segment {i}. Current loop end samples: {track.LoopEnd}");
                             }
                         }
 
+                        // Always set these properties to ensure the track displays metadata
                         track.SampleRate = sampleRate;
                         track.ChannelCount = channels;
                         track.Duration += duration;
@@ -198,6 +233,15 @@ namespace SoundEditorPlugin
                     // Final loop point adjustment and sample array assignment
                     track.LoopEnd += track.LoopStart; // Final loop end sample index calculation
                     track.Samples = decodedSoundBuf.ToArray();
+
+                    logger.Log($"Track {track.Name} Finalization: Total Duration={track.Duration:F3}s, Total PCM Samples={track.Samples.Length}, LoopStart={track.LoopStart}, LoopEnd={track.LoopEnd}");
+
+                    // CRITICAL: Log error if duration is > 0 but no samples are available (i.e., export will be empty)
+                    if (track.Duration > 0 && track.Samples.Length == 0)
+                    {
+                        logger.LogError($"Track {track.Name} cannot be exported or played: Has duration ({track.Duration:F3}s) but zero decoded PCM samples. (Codec: {track.Codec})");
+                    }
+
 
                     // --- Waveform Rendering Logic ---
 
@@ -218,51 +262,60 @@ namespace SoundEditorPlugin
 
                     try
                     {
-                        var renderer = new WaveFormRenderer();
-                        var image = renderer.Render(track.Samples, maxPeakProvider, soundCloudOrangeTransparentBlocks);
-
-                        using (var ms = new MemoryStream())
+                        // FIX: Only attempt waveform rendering if we have decoded samples.
+                        if (track.Samples.Length > 0)
                         {
-                            image.Save(ms, ImageFormat.Png);
-                            ms.Seek(0, SeekOrigin.Begin);
+                            var renderer = new WaveFormRenderer();
+                            var image = renderer.Render(track.Samples, maxPeakProvider, soundCloudOrangeTransparentBlocks);
 
-                            var bitmapImage = new BitmapImage();
-                            bitmapImage.BeginInit();
-                            bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
-                            bitmapImage.StreamSource = ms;
-                            bitmapImage.EndInit();
-
-                            var target = new RenderTargetBitmap(bitmapImage.PixelWidth, bitmapImage.PixelHeight, bitmapImage.DpiX, bitmapImage.DpiY, PixelFormats.Pbgra32);
-                            var visual = new DrawingVisual();
-
-                            using (var r = visual.RenderOpen())
+                            using (var ms = new MemoryStream())
                             {
-                                visual.SetValue(RenderOptions.EdgeModeProperty, EdgeMode.Aliased);
+                                image.Save(ms, ImageFormat.Png);
+                                ms.Seek(0, SeekOrigin.Begin);
 
-                                r.DrawImage(bitmapImage, new Rect(0, 0, bitmapImage.Width, bitmapImage.Height));
+                                var bitmapImage = new BitmapImage();
+                                bitmapImage.BeginInit();
+                                bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
+                                bitmapImage.StreamSource = ms;
+                                bitmapImage.EndInit();
 
-                                if (loopingDuration > 0)
+                                var target = new RenderTargetBitmap(bitmapImage.PixelWidth, bitmapImage.PixelHeight, bitmapImage.DpiX, bitmapImage.DpiY, PixelFormats.Pbgra32);
+                                var visual = new DrawingVisual();
+
+                                using (var r = visual.RenderOpen())
                                 {
-                                    // Draw loop start line
-                                    r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
-                                        new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), soundCloudOrangeTransparentBlocks.TopHeight),
-                                        new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
+                                    visual.SetValue(RenderOptions.EdgeModeProperty, EdgeMode.Aliased);
 
-                                    // Draw loop end line
-                                    r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
-                                        new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), soundCloudOrangeTransparentBlocks.TopHeight),
-                                        new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
+                                    r.DrawImage(bitmapImage, new Rect(0, 0, bitmapImage.Width, bitmapImage.Height));
 
-                                    // Draw bottom loop line
-                                    r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
-                                        new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height),
-                                        new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
+                                    if (loopingDuration > 0)
+                                    {
+                                        // Draw loop start line
+                                        r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
+                                            new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), soundCloudOrangeTransparentBlocks.TopHeight),
+                                            new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
+
+                                        // Draw loop end line
+                                        r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
+                                            new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), soundCloudOrangeTransparentBlocks.TopHeight),
+                                            new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
+
+                                        // Draw bottom loop line
+                                        r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
+                                            new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height),
+                                            new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
+                                    }
                                 }
-                            }
 
-                            target.Render(visual);
-                            target.Freeze();
-                            track.WaveForm = target;
+                                target.Render(visual);
+                                target.Freeze();
+                                track.WaveForm = target;
+                            }
+                            logger.Log($"Waveform successfully generated for track {track.Name}.");
+                        }
+                        else
+                        {
+                            logger.Log($"Skipping waveform generation for track {track.Name}: No decoded PCM samples available.");
                         }
                     }
                     catch (Exception e)
@@ -275,6 +328,7 @@ namespace SoundEditorPlugin
                 }
 
                 retVal.Add(track);
+                logger.Log($"--- Finished Processing Track {track.Name} ---");
             }
 
             return retVal;
