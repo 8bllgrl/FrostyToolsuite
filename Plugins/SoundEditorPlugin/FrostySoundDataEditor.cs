@@ -295,57 +295,6 @@ namespace SoundEditorPlugin
         }
     }
 
-    public class AudioPlayer : IDisposable
-    {
-        public XAudio2 AudioSystem { get; }
-        public MasteringVoice OutputVoice { get; }
-        public double Progress => currentSound?.Progress ?? 0.0;
-        public bool IsPlaying { get; private set; }
-
-        private SoundWave currentSound;
-
-        public AudioPlayer()
-        {
-            AudioSystem = new XAudio2();
-            OutputVoice = new MasteringVoice(AudioSystem, 8);
-        }
-
-        public void PlaySound(SoundDataTrack track)
-        {
-            SoundDispose();
-
-            currentSound = new SoundWave(track, this);
-            IsPlaying = true;
-            currentSound.OnFinishedPlaying += CurrentSound_OnFinishedPlaying;
-        }
-
-        private void CurrentSound_OnFinishedPlaying(object sender, RoutedEventArgs e)
-        {
-            IsPlaying = false;
-            //SoundDispose();
-        }
-
-        public void SoundDispose()
-        {
-            IsPlaying = false;
-
-            if (currentSound == null)
-                return;
-
-            var tmpSound = currentSound;
-            currentSound = null;
-            tmpSound.Dispose();
-        }
-
-        public void Dispose()
-        {
-            SoundDispose();
-
-            OutputVoice.Dispose();
-            AudioSystem.Dispose();
-        }
-    }
-
     [TemplatePart(Name = PART_TracksListBox, Type = typeof(ListView))]
     [TemplatePart(Name = PART_PlayButton, Type = typeof(Button))]
     [TemplatePart(Name = PART_StopButton, Type = typeof(Button))]
