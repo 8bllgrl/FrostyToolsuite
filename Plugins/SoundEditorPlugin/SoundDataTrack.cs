@@ -7,7 +7,7 @@ namespace SoundEditorPlugin
 {
     public class SoundDataTrack : INotifyPropertyChanged
     {
-
+        // Simple auto-implemented properties
         public string Name { get; set; }
         public int CodecUnformatted { get; set; }
         public int SegmentCount { get; set; }
@@ -24,7 +24,8 @@ namespace SoundEditorPlugin
         {
             get
             {
-                if (!this.IsLoaded)
+                // This property returns " - Loading..." if IsLoaded is false.
+                if (!IsLoaded)
                 {
                     return " - Loading...";
                 }
@@ -32,95 +33,94 @@ namespace SoundEditorPlugin
             }
         }
 
+        // Properties with backing fields and change notification
         public string Codec
         {
-            get => this.codec;
+            get { return codec; }
             set
             {
-                this.codec = value;
-                this.NotifyPropertyChanged("Codec");
+                codec = value;
+                NotifyPropertyChanged("Codec");
             }
         }
-        private string codec;
 
         public double Duration
         {
-            get => this.duration;
+            get { return duration; }
             set
             {
-                this.duration = value;
-                this.NotifyPropertyChanged("Duration");
+                duration = value;
+                NotifyPropertyChanged("Duration");
             }
         }
-        private double duration;
 
         public ImageSource WaveForm
         {
-            get => this.waveform;
+            get { return waveform; }
             set
             {
-                this.waveform = value;
-                this.NotifyPropertyChanged("WaveForm");
+                waveform = value;
+                NotifyPropertyChanged("WaveForm");
             }
         }
-        private ImageSource waveform;
 
         public int SampleRate
         {
-            get => this.samplerate;
+            get { return samplerate; }
             set
             {
-                this.samplerate = value;
-                this.NotifyPropertyChanged("SampleRate");
+                samplerate = value;
+                NotifyPropertyChanged("SampleRate");
             }
         }
-        private int samplerate;
 
         public int ChannelCount
         {
-            get => this.channelcount;
+            get { return channelcount; }
             set
             {
-                this.channelcount = value;
-                this.NotifyPropertyChanged("ChannelCount");
+                channelcount = value;
+                NotifyPropertyChanged("ChannelCount");
             }
         }
-        private int channelcount;
 
         public bool IsLoaded
         {
-            get => this.isloaded;
+            get { return isloaded; }
             set
             {
-                this.isloaded = value;
-                this.NotifyPropertyChanged("IsLoaded");
-                this.NotifyPropertyChanged("ExtraName");
+                isloaded = value;
+                NotifyPropertyChanged("IsLoaded");
+                NotifyPropertyChanged("ExtraName"); // Notify change for dependent property
             }
         }
-        private bool isloaded;
 
         public double Progress
         {
-            get => this.progress;
+            get { return progress; }
             set
             {
-                this.progress = value;
-                this.NotifyPropertyChanged("Progress");
+                progress = value;
+                NotifyPropertyChanged("Progress");
             }
         }
-        private double progress;
 
+        // INotifyPropertyChanged implementation
         public event PropertyChangedEventHandler PropertyChanged;
 
         private void NotifyPropertyChanged([CallerMemberName] string propertyName = "")
         {
-
-            PropertyChangedEventHandler propertyChanged = this.PropertyChanged;
-            if (propertyChanged == null)
-            {
-                return;
-            }
-            propertyChanged(this, new PropertyChangedEventArgs(propertyName));
+            // Use null-conditional operator for concise thread-safe event invocation
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
+
+        // Private backing fields (grouped for better readability)
+        private string codec;
+        private double duration;
+        private ImageSource waveform;
+        private int samplerate;
+        private int channelcount;
+        private bool isloaded;
+        private double progress;
     }
 }
