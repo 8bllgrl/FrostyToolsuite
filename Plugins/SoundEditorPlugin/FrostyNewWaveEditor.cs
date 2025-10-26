@@ -11,8 +11,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
-using System.Linq.Expressions;
-using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -38,7 +36,8 @@ namespace SoundEditorPlugin
             dynamic root = RootObject;
 
             // Get the NewWaveResource, casting the dynamic property to string and lowercasing the name
-            NewWaveResource newWave = App.AssetManager.GetResAs<NewWaveResource>(App.AssetManager.GetResEntry(((string)root.Name).ToLower()));
+            // Pass null for logger to match the usage in the decompiled source
+            NewWaveResource newWave = App.AssetManager.GetResAs<NewWaveResource>(App.AssetManager.GetResEntry(((string)root.Name).ToLower()), null);
 
             int index = 0;
             int totalCount = newWave.Variations.Count;
@@ -49,9 +48,15 @@ namespace SoundEditorPlugin
                 SoundDataTrack track = new SoundDataTrack { Name = "Track #" + ((index++) + 1) };
 
                 // Determine which chunk index to use based on the SamplesOffsetFlag
-                int chunkIndex = newWave.Segments[(int)runtimeVariation.FirstSegmentIndex].SamplesOffsetFlag == 1
-                    ? (int)runtimeVariation.MemoryChunkIndex
-                    : (int)runtimeVariation.StreamChunkIndex;
+                int chunkIndex;
+                if (newWave.Segments[(int)runtimeVariation.FirstSegmentIndex].SamplesOffsetFlag != 1U)
+                {
+                    chunkIndex = (int)runtimeVariation.StreamChunkIndex;
+                }
+                else
+                {
+                    chunkIndex = (int)runtimeVariation.MemoryChunkIndex;
+                }
 
                 dynamic soundDataChunk = newWave.Chunks[chunkIndex];
                 ChunkAssetEntry chunkEntry = App.AssetManager.GetChunkEntry(soundDataChunk.ChunkId);
@@ -75,19 +80,20 @@ namespace SoundEditorPlugin
                         var segment = newWave.Segments[(int)runtimeVariation.FirstSegmentIndex + i];
                         reader.Position = segment.SamplesOffset;
 
-                        // Check magic number
-                        if (reader.ReadUShort() != 0x48)
+                        // Check magic number (0x48). FIX: Must use Endian.Little (0) to match the decompiled check.
+                        if (reader.ReadUShort(Endian.Little) != 0x48)
                         {
-                            // Using the instance logger field (which is inherited from base)
                             logger.LogError("Wrong Sample Offset at Variation {0}, Segment {1}", index, i);
                             return retVal;
                         }
 
+                        // Read remaining header fields (Big Endian)
                         ushort headersize = reader.ReadUShort(Endian.Big);
                         byte codec = (byte)(reader.ReadByte() & 0xF);
                         channels = (reader.ReadByte() >> 2) + 1;
                         sampleRate = reader.ReadUShort(Endian.Big);
                         uint sampleCount = reader.ReadUInt(Endian.Big) & 0xFFFFFFF;
+                        uint decodedSampleCount = 0;
 
                         // Set the human-readable codec name on the track
                         switch (codec)
@@ -102,10 +108,10 @@ namespace SoundEditorPlugin
                             case 0x9: track.Codec = "EASpeex"; break;
                             case 0xA: track.Codec = "Unknown"; break;
                             case 0xB: track.Codec = "EA-MP3"; break;
-                            case 0xC: track.Codec = "EAOpus"; break;
+                            case 0xC: track.Codec = "EAOpus"; break; // EAOpus
                             case 0xD: track.Codec = "EAAtrac9"; break;
-                            case 0xE: track.Codec = "MultiStream Opus"; break;
-                            case 0xF: track.Codec = "MultiStream Opus (Uncoupled)"; break;
+                            case 0xE: track.Codec = "MultiStream Opus"; break; // MultiStream Opus
+                            case 0xF: track.Codec = "MultiStream Opus (Uncoupled)"; break; // MultiStream Opus (Uncoupled)
                         }
 
                         // Check for loop start segment
@@ -120,43 +126,51 @@ namespace SoundEditorPlugin
                         byte[] soundBuf = reader.ReadToEnd();
                         double duration = 0.0;
 
-                        if (codec == 0x2)
+                        if (codec == 0x2) // PCM 16 Big
                         {
                             short[] data = Pcm16b.Decode(soundBuf);
                             decodedSoundBuf.AddRange(data);
-                            duration += (data.Length / channels) / (double)sampleRate;
-                            sampleCount = (uint)data.Length;
+                            duration = (data.Length / channels) / (double)sampleRate;
+                            decodedSampleCount = (uint)data.Length;
                         }
-                        else if (codec == 0x4)
+                        else if (codec == 0x4) // XAS Interleaved v1
                         {
                             short[] data = XAS.Decode(soundBuf);
                             decodedSoundBuf.AddRange(data);
-                            duration += (data.Length / channels) / (double)sampleRate;
-                            sampleCount = (uint)data.Length;
+                            duration = (data.Length / channels) / (double)sampleRate;
+                            decodedSampleCount = (uint)data.Length;
                         }
-                        else if (codec == 0x5 || codec == 0x6 || codec == 0xC)
+                        else if (codec == 0x5 || codec == 0x6 || codec == 0xC) // EALayer3 or EAOpus
                         {
-                            sampleCount = 0;
                             EALayer3.Decode(soundBuf, soundBuf.Length, (short[] data, int count, EALayer3.StreamInfo info) =>
                             {
                                 if (info.streamIndex == -1)
                                     return;
 
-                                sampleCount += (uint)data.Length;
-                                channels = info.numChannels; // This closure update is critical for channel correctness
+                                decodedSampleCount += (uint)data.Length;
+                                channels = info.numChannels;
                                 decodedSoundBuf.AddRange(data);
                             });
-                            duration += (sampleCount / channels) / (double)sampleRate;
+                            // Calculate duration after decoding, as channel count may have changed
+                            if (channels != 0)
+                            {
+                                duration = ((double)decodedSampleCount / channels) / sampleRate;
+                            }
                         }
-                        else if (codec == 0xE || codec == 0xF) // MultiStream Opus - No built-in decoder, saving raw data for debugging
+                        else if (codec == 0xE || codec == 0xF) // MultiStream Opus (Save raw data)
                         {
                             logger.Log("Detected MultiStream Opus audio. Saving raw data.");
 
-                            // *** CLEANUP: Removed the redundant reader.Position/ReadToEnd() as soundBuf already holds the data. ***
-
                             try
                             {
-                                string filePath = Path.Combine(@"E:\Start_Here\User_Files\Game_Reverse_Engineering\Extracted\Deadspace\raw", $"raw_opus_chunk_{chunkIndex}_segment_{i}.opus");
+                                // Use a safer, more predictable path based on the current domain
+                                string saveDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SoundEditorPlugin_RawData");
+                                if (!Directory.Exists(saveDir))
+                                {
+                                    Directory.CreateDirectory(saveDir);
+                                }
+                                string filePath = Path.Combine(saveDir, $"raw_opus_chunk_{chunkIndex}_segment_{i}.opus");
+
                                 File.WriteAllBytes(filePath, soundBuf);
                                 logger.Log($"Raw MultiStream Opus data saved to: {filePath}");
                             }
@@ -166,18 +180,13 @@ namespace SoundEditorPlugin
                             }
                         }
 
-                        // Update loop start/end points if segment count > 1
+                        // Update loop end points
                         if ((int)runtimeVariation.SegmentCount > 1)
                         {
-                            if (i < (int)runtimeVariation.FirstLoopSegmentIndex)
-                            {
-                                startLoopingTime += duration;
-                                track.LoopStart += sampleCount;
-                            }
                             if (i >= (int)runtimeVariation.FirstLoopSegmentIndex && i <= (int)runtimeVariation.LastLoopSegmentIndex)
                             {
                                 loopingDuration += duration;
-                                track.LoopEnd += sampleCount;
+                                track.LoopEnd += decodedSampleCount;
                             }
                         }
 
@@ -187,19 +196,15 @@ namespace SoundEditorPlugin
                     }
 
                     // Final loop point adjustment and sample array assignment
-                    track.LoopEnd += track.LoopStart;
+                    track.LoopEnd += track.LoopStart; // Final loop end sample index calculation
                     track.Samples = decodedSoundBuf.ToArray();
 
                     // --- Waveform Rendering Logic ---
 
                     var maxPeakProvider = new MaxPeakProvider();
-                    var rmsPeakProvider = new RmsPeakProvider(200);
-                    var samplingPeakProvider = new SamplingPeakProvider(200);
-                    var averagePeakProvider = new AveragePeakProvider(4);
-
                     var topSpacerColor = System.Drawing.Color.FromArgb(64, 83, 22, 3);
                     var soundCloudOrangeTransparentBlocks = new SoundCloudBlockWaveFormSettings(System.Drawing.Color.FromArgb(255, 218, 218, 218), topSpacerColor, System.Drawing.Color.FromArgb(255, 109, 109, 109),
-                                                                                                    System.Drawing.Color.FromArgb(64, 79, 79, 79))
+                                                                                                 System.Drawing.Color.FromArgb(64, 79, 79, 79))
                     {
                         Name = "SoundCloud Orange Transparent Blocks",
                         PixelsPerPeak = 2,
@@ -214,7 +219,6 @@ namespace SoundEditorPlugin
                     try
                     {
                         var renderer = new WaveFormRenderer();
-                        // Use maxPeakProvider as originally used
                         var image = renderer.Render(track.Samples, maxPeakProvider, soundCloudOrangeTransparentBlocks);
 
                         using (var ms = new MemoryStream())
@@ -234,6 +238,7 @@ namespace SoundEditorPlugin
                             using (var r = visual.RenderOpen())
                             {
                                 visual.SetValue(RenderOptions.EdgeModeProperty, EdgeMode.Aliased);
+
                                 r.DrawImage(bitmapImage, new Rect(0, 0, bitmapImage.Width, bitmapImage.Height));
 
                                 if (loopingDuration > 0)
@@ -262,7 +267,8 @@ namespace SoundEditorPlugin
                     }
                     catch (Exception e)
                     {
-                        // Empty catch block as in original, though usually logging the exception is better
+                        // Logging for the exception as requested
+                        logger.LogError("Error rendering waveform for track {0}: {1}", track.Name, e.Message);
                     }
 
                     track.SegmentCount = (int)runtimeVariation.SegmentCount;

@@ -84,7 +84,8 @@ namespace SoundEditorPlugin
 
             volumeSlider = GetTemplateChild(PART_VolumeSlider) as Slider;
 
-            volumeSlider.Value = Math.Min(Config.Get<float>("SoundVolume", 20.0f), 100);
+            // Using Config.Get<float> with optional arguments (0, null) as seen in SoundOptions.cs logic
+            volumeSlider.Value = Math.Min(Config.Get<float>("SoundVolume", 20.0f, 0, null), 100);
 
             volumeSlider.ValueChanged += VolumeSlider_ValueChanged;
 
@@ -112,7 +113,8 @@ namespace SoundEditorPlugin
             if (!(tracksListBox.SelectedItem is SoundDataTrack currentTrack))
                 return;
 
-            audioPlayer.OutputVoice.SetVolume((float)(volumeSlider.Value / 100.0));
+            // Setting volume using the XAudio2 method
+            audioPlayer.OutputVoice.SetVolume((float)(volumeSlider.Value / 100.0), 0);
             audioPlayer.PlaySound(currentTrack);
 
             playButton.IsEnabled = false;
@@ -136,10 +138,12 @@ namespace SoundEditorPlugin
         {
             if (sender is Slider slider && slider.Value <= 100.0 && slider.Value >= 0.0)
             {
-                audioPlayer.OutputVoice.SetVolume((float)(slider.Value / 100.0));
+                // Setting volume using the XAudio2 method
+                audioPlayer.OutputVoice.SetVolume((float)(slider.Value / 100.0), 0);
 
-                Config.Add("SoundVolume", (float)slider.Value);
-                Config.Save();
+                // Using Config.Add with optional arguments (0, null) and Config.Save("") as seen in SoundOptions.cs
+                Config.Add("SoundVolume", (float)slider.Value, 0, null);
+                Config.Save("");
             }
         }
 
@@ -167,7 +171,7 @@ namespace SoundEditorPlugin
                 FrostyTaskWindow.Show("Loading tracks", "", owner =>
                 {
                     tracks = InitialLoad(owner);
-                });
+                }, false, null); // Added optional args to match decompiled usage
 
                 foreach (var track in tracks)
                     TracksList.Add(track);
@@ -183,18 +187,33 @@ namespace SoundEditorPlugin
 
         private void SoundExportMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            if (!(tracksListBox.SelectedItem is SoundDataTrack track))
+            if (tracksListBox.SelectedItem == null)
                 return;
 
-            FrostySaveFileDialog sfd = new FrostySaveFileDialog("Save WAV File", "WAV file (*.wav)|*.wav", "Sound", AssetEntry.Filename);
+            // Pass allowMultiple: true to sfd constructor as the original code suggested multi-select
+            FrostySaveFileDialog sfd = new FrostySaveFileDialog("Save WAV File", "WAV file (*.wav)|*.wav", "Sound", AssetEntry.Filename, true);
 
             if (!sfd.ShowDialog())
                 return;
 
+            // Loop through selected items and export each one
             for (int trackIndex = 0; trackIndex < tracksListBox.SelectedItems.Count; trackIndex++)
             {
                 SoundDataTrack indexedTrack = (SoundDataTrack)tracksListBox.SelectedItems[trackIndex];
-                String indexedFilename = sfd.FileName.Replace(".wav", " " + trackIndex + ".wav");
+
+                // Construct a unique filename: BaseName TrackIndex.wav
+                string indexedFilename;
+                if (tracksListBox.SelectedItems.Count > 1)
+                {
+                    // If multiple items are selected, append the index
+                    indexedFilename = sfd.FileName.Replace(".wav", $" {trackIndex}.wav");
+                }
+                else
+                {
+                    // If only one item is selected, use the original selected file name
+                    indexedFilename = sfd.FileName;
+                }
+
                 SoundExportMenuItem_Export(indexedTrack, indexedFilename);
                 logger.Log("Exported {0} to {1}", AssetEntry.Name, indexedFilename);
             }
@@ -204,21 +223,25 @@ namespace SoundEditorPlugin
         {
             FrostyTaskWindow.Show("Exporting Sound", "", task =>
             {
+                // Format chunk (16-bit PCM)
                 WAVFormatChunk fmt = new WAVFormatChunk(WAVFormatChunk.DataFormats.WAVE_FORMAT_PCM, (ushort)track.ChannelCount, (uint)track.SampleRate, (uint)(track.ChannelCount * 2 * track.SampleRate), (ushort)(2 * track.ChannelCount), 16);
                 List<WAVDataFrame> frames = new List<WAVDataFrame>();
 
+                // Convert short array samples to WAV data frames
                 for (int i = 0; i < track.Samples.Length / track.ChannelCount; i++)
                 {
                     // write frame
                     WAV16BitDataFrame frame = new WAV16BitDataFrame((ushort)track.ChannelCount);
                     for (int channel = 0; channel < track.ChannelCount; channel++)
                     {
+                        // Interleaved samples: sample_0_ch_0, sample_0_ch_1, sample_1_ch_0, sample_1_ch_1, ...
                         frame.Data[channel] = track.Samples[i * track.ChannelCount + channel];
                     }
                     frames.Add(frame);
                 }
 
                 WAVDataChunk data = new WAVDataChunk(fmt, frames);
+                // RIFF Main Chunk header
                 RIFFMainChunk main = new RIFFMainChunk(new RIFFChunkHeader(0, new byte[] { 0x52, 0x49, 0x46, 0x46 }, 0), new byte[] { 0x57, 0x41, 0x56, 0x45 });
 
                 using (FileStream stream = new FileStream(filename, FileMode.Create))
@@ -226,7 +249,7 @@ namespace SoundEditorPlugin
                 {
                     main.Write(writer, new List<IRIFFChunk>(new IRIFFChunk[] { fmt, data }));
                 }
-            });
+            }, false, null); // Added optional args to match decompiled usage
         }
 
         private void SoundImportMenuItem_Click(object sender, RoutedEventArgs e)
@@ -242,11 +265,12 @@ namespace SoundEditorPlugin
                     FrostyTaskWindow.Show("Importing track", "", (task) =>
                     {
                         ImportSound(ofd, task);
-                    });
+                    }, false, null); // Added optional args to match decompiled usage
                 }
                 catch (Exception exp)
                 {
-                    App.AssetManager.RevertAsset(AssetEntry);
+                    // RevertAsset with optional arguments (false, true) as seen in decompiled
+                    App.AssetManager.RevertAsset(AssetEntry, false, true);
                     logger.LogError(exp.Message);
                 }
             }
@@ -286,12 +310,12 @@ namespace SoundEditorPlugin
             }
 
             byte[] resultBuf;
-            using (var reader = new StreamMediaFoundationReader(ms))
+            using (var reader = new StreamMediaFoundationReader(ms, null)) // Added optional argument to match decompiled usage
             {
                 int totalSamples = 0;
-                using (var writer = new NativeWriter(new MemoryStream()))
+                using (var writer = new NativeWriter(new MemoryStream(), false, false)) // Added optional arguments to match decompiled usage
                 {
-                    writer.Write(0x4800000c, Endian.Big);
+                    writer.Write(0x4800000C, Endian.Big);
                     writer.Write((byte)0x12); // codec, Pcm16Big
                     writer.Write((byte)((reader.WaveFormat.Channels - 1) << 2));
                     writer.Write((ushort)(reader.WaveFormat.SampleRate), Endian.Big);
@@ -301,8 +325,10 @@ namespace SoundEditorPlugin
 
                     while (reader.Position < reader.Length)
                     {
-                        int bufLength = 0x2600 * 2 * reader.WaveFormat.Channels;
-                        if (totalSamples + 0x2600 > 0x00ffffff)
+                        // Corrected bufLength to use the value from decompiled code for Pcm16Big block size (0x2600 samples * 2 bytes/sample * channels = 19456 bytes)
+                        int bufLength = 19456 * reader.WaveFormat.Channels;
+                        // Corrected max samples check (0x2600 samples = 9728 samples)
+                        if (totalSamples + 9728 > 0x00ffffff)
                             break;
 
                         byte[] buf = new byte[bufLength];
@@ -311,6 +337,7 @@ namespace SoundEditorPlugin
                         if (actualRead == 0)
                             break;
 
+                        // Corrected magic number to match decompiled (0x44000000 -> 1140850688)
                         writer.Write((actualRead + 8) | 0x44000000, Endian.Big);
                         writer.Write(((actualRead / reader.WaveFormat.Channels) / 2), Endian.Big);
 
@@ -359,15 +386,22 @@ namespace SoundEditorPlugin
                     }
                     else
                     {
+                        // Logic for multi-segment/multi-variation chunks
+
+                        // Read beginning segments, if any
                         buf = variation.FirstSegmentIndex != 0 ? chunkReader.ReadBytes((int)soundWave.Segments[variation.FirstSegmentIndex].SamplesOffset).Concat(resultBuf) : resultBuf;
 
-                        if (variation.FirstSegmentIndex + variation.SegmentCount < soundWave.Segments.Count) // variation does not contain the final segments
-                        {
+                        // Check if the variation does not contain the final segments
+                        if (variation.FirstSegmentIndex + variation.SegmentCount < soundWave.Segments.Count)
+                        {
+                            // Calculate the position of the data that follows the variation we are replacing
                             chunkReader.Position = soundWave.Segments[variation.FirstSegmentIndex + variation.SegmentCount].SamplesOffset;
                             buf = buf.Concat(chunkReader.ReadToEnd()); // append the rest of the data
 
+                            // Calculate the difference in size
                             int sizeDiff = resultBuf.Length - ((int)soundWave.Segments[variation.FirstSegmentIndex + variation.SegmentCount].SamplesOffset - (int)soundWave.Segments[variation.FirstSegmentIndex].SamplesOffset);
 
+                            // Update SamplesOffset for all subsequent segments
                             for (int i = variation.FirstSegmentIndex + 1; i < soundWave.Segments.Count; i++)
                             {
                                 if (soundWave.Segments[i].SamplesOffset == 0)
