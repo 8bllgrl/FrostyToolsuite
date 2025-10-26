@@ -1,6 +1,6 @@
-﻿using System;
+﻿using SharpDX.XAudio2;
+using System;
 using System.Windows;
-using SharpDX.XAudio2;
 
 namespace SoundEditorPlugin.Playback
 {
@@ -8,50 +8,61 @@ namespace SoundEditorPlugin.Playback
     {
         public XAudio2 AudioSystem { get; }
         public MasteringVoice OutputVoice { get; }
-        public double Progress => currentSound?.Progress ?? 0.0;
+
+        public double Progress
+        {
+            get
+            {
+                SoundWave soundWave = this.currentSound;
+                if (soundWave == null)
+                {
+                    return 0.0;
+                }
+                return soundWave.Progress;
+            }
+        }
+
         public bool IsPlaying { get; private set; }
 
         private SoundWave currentSound;
 
         public AudioPlayer()
         {
-            AudioSystem = new XAudio2();
-            // Using 44100 Hz sample rate as found in decompiled code
-            OutputVoice = new MasteringVoice(AudioSystem, 8, 44100);
+            this.AudioSystem = new XAudio2();
+            this.OutputVoice = new MasteringVoice(this.AudioSystem, 8, 44100);
         }
 
         public void PlaySound(SoundDataTrack track)
         {
-            SoundDispose();
+            this.SoundDispose();
 
-            currentSound = new SoundWave(track, this);
-            IsPlaying = true;
-            currentSound.OnFinishedPlaying += CurrentSound_OnFinishedPlaying;
+            this.currentSound = new SoundWave(track, this);
+            this.IsPlaying = true;
+            this.currentSound.OnFinishedPlaying += this.CurrentSound_OnFinishedPlaying;
         }
 
         private void CurrentSound_OnFinishedPlaying(object sender, RoutedEventArgs e)
         {
-            IsPlaying = false;
+            this.IsPlaying = false;
         }
 
         public void SoundDispose()
         {
-            IsPlaying = false;
-
-            if (currentSound == null)
+            this.IsPlaying = false;
+            if (this.currentSound == null)
+            {
                 return;
-
-            var tmpSound = currentSound;
-            currentSound = null;
-            tmpSound.Dispose();
+            }
+            SoundWave soundWave = this.currentSound;
+            this.currentSound = null;
+            soundWave.Dispose();
         }
 
         public void Dispose()
         {
-            SoundDispose();
-
-            OutputVoice.Dispose();
-            AudioSystem.Dispose();
+            this.SoundDispose();
+            this.OutputVoice.Dispose();
+            this.AudioSystem.Dispose();
         }
     }
 }
