@@ -23,6 +23,7 @@ using FrostySdk.Managers.Entries;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using WaveFormatExtensible = SharpDX.Multimedia.WaveFormatExtensible;
+using SoundEditorPlugin.WAV; // <-- Added this missing dependency for export classes
 
 namespace SoundEditorPlugin
 {
@@ -58,8 +59,8 @@ namespace SoundEditorPlugin
         private AudioPlayer audioPlayer;
         private bool bFirstTime = true;
 
-        public FrostySoundDataEditor(ILogger inLogger) 
-            : base(inLogger)
+        public FrostySoundDataEditor(ILogger inLogger)
+          : base(inLogger)
         {
         }
 
@@ -189,9 +190,11 @@ namespace SoundEditorPlugin
             if (!sfd.ShowDialog())
                 return;
 
-            for (int trackIndex = 0; trackIndex < tracksListBox.SelectedItems.Count; trackIndex++)
+            // This section handles multiple selected tracks for batch export.
+            // It relies on the WAV classes defined in WAV.cs to function.
+            for (int trackIndex = 0; trackIndex < tracksListBox.SelectedItems.Count; trackIndex++)
             {
-                SoundDataTrack indexedTrack = (SoundDataTrack) tracksListBox.SelectedItems[trackIndex];
+                SoundDataTrack indexedTrack = (SoundDataTrack)tracksListBox.SelectedItems[trackIndex];
                 String indexedFilename = sfd.FileName.Replace(".wav", " " + trackIndex + ".wav");
                 SoundExportMenuItem_Export(indexedTrack, indexedFilename);
                 logger.Log("Exported {0} to {1}", AssetEntry.Name, indexedFilename);
@@ -202,13 +205,14 @@ namespace SoundEditorPlugin
         {
             FrostyTaskWindow.Show("Exporting Sound", "", task =>
             {
-                WAV.WAVFormatChunk fmt = new WAV.WAVFormatChunk(WAV.WAVFormatChunk.DataFormats.WAVE_FORMAT_PCM, (ushort)track.ChannelCount, (uint)track.SampleRate, (uint)(track.ChannelCount * 2 * track.SampleRate), (ushort)(2 * track.ChannelCount), 16);
-                List<WAV.WAVDataFrame> frames = new List<WAV.WAVDataFrame>();
+                // These are the custom types required for WAV writing.
+                WAVFormatChunk fmt = new WAVFormatChunk(WAVFormatChunk.DataFormats.WAVE_FORMAT_PCM, (ushort)track.ChannelCount, (uint)track.SampleRate, (uint)(track.ChannelCount * 2 * track.SampleRate), (ushort)(2 * track.ChannelCount), 16);
+                List<WAVDataFrame> frames = new List<WAVDataFrame>();
 
                 for (int i = 0; i < track.Samples.Length / track.ChannelCount; i++)
                 {
-                    // write frame
-                    WAV.WAV16BitDataFrame frame = new WAV.WAV16BitDataFrame((ushort)track.ChannelCount);
+                    // write frame
+                    WAV16BitDataFrame frame = new WAV16BitDataFrame((ushort)track.ChannelCount);
                     for (int channel = 0; channel < track.ChannelCount; channel++)
                     {
                         frame.Data[channel] = track.Samples[i * track.ChannelCount + channel];
@@ -216,13 +220,13 @@ namespace SoundEditorPlugin
                     frames.Add(frame);
                 }
 
-                WAV.WAVDataChunk data = new WAV.WAVDataChunk(fmt, frames);
-                WAV.RIFFMainChunk main = new WAV.RIFFMainChunk(new WAV.RIFFChunkHeader(0, new byte[] { 0x52, 0x49, 0x46, 0x46 }, 0), new byte[] { 0x57, 0x41, 0x56, 0x45 });
+                WAVDataChunk data = new WAVDataChunk(fmt, frames);
+                RIFFMainChunk main = new RIFFMainChunk(new RIFFChunkHeader(0, new byte[] { 0x52, 0x49, 0x46, 0x46 }, 0), new byte[] { 0x57, 0x41, 0x56, 0x45 });
 
                 using (FileStream stream = new FileStream(filename, FileMode.Create))
                 using (BinaryWriter writer = new BinaryWriter(stream))
                 {
-                    main.Write(writer, new List<WAV.IRIFFChunk>(new WAV.IRIFFChunk[] { fmt, data }));
+                    main.Write(writer, new List<IRIFFChunk>(new IRIFFChunk[] { fmt, data }));
                 }
             });
         }
@@ -252,21 +256,21 @@ namespace SoundEditorPlugin
 
         private void ImportSound(FrostyOpenFileDialog ofd, FrostyTaskWindow task)
         {
-            //WaveFormat waveFormat = null;
-            MemoryStream ms = new MemoryStream();
+            //WaveFormat waveFormat = null;
+            MemoryStream ms = new MemoryStream();
 
             if (ofd.FileName.EndsWith(".wav", StringComparison.OrdinalIgnoreCase))
             {
-                // force stereo for .wav files if needed
-                using (var reader = new AudioFileReader(ofd.FileName))
+                // force stereo for .wav files if needed
+                using (var reader = new AudioFileReader(ofd.FileName))
                 {
-                    //waveFormat = reader.WaveFormat;
+                    //waveFormat = reader.WaveFormat;
 
-                    if (reader.WaveFormat.Channels == 1)
+                    if (reader.WaveFormat.Channels == 1)
                     {
                         var stereo = new MonoToStereoSampleProvider(reader) { LeftVolume = 1.0f, RightVolume = 1.0f };
-                        //waveFormat = stereo.WaveFormat;
-                        WaveFileWriter.WriteWavFileToStream(ms, new SampleToWaveProvider16(stereo));
+                        //waveFormat = stereo.WaveFormat;
+                        WaveFileWriter.WriteWavFileToStream(ms, new SampleToWaveProvider16(stereo));
                     }
                     else
                     {
@@ -278,8 +282,8 @@ namespace SoundEditorPlugin
             {
                 using (var reader = new MediaFoundationReader(ofd.FileName))
                 {
-                    //waveFormat = reader.WaveFormat;
-                    WaveFileWriter.WriteWavFileToStream(ms, reader);
+                    //waveFormat = reader.WaveFormat;
+                    WaveFileWriter.WriteWavFileToStream(ms, reader);
                 }
             }
 
@@ -291,7 +295,7 @@ namespace SoundEditorPlugin
                 {
                     writer.Write(0x4800000c, Endian.Big);
                     writer.Write((byte)0x12); // codec, Pcm16Big
-                    writer.Write((byte)((reader.WaveFormat.Channels - 1) << 2));
+                    writer.Write((byte)((reader.WaveFormat.Channels - 1) << 2));
                     writer.Write((ushort)(reader.WaveFormat.SampleRate), Endian.Big);
 
                     long pos = writer.Position;
@@ -343,16 +347,16 @@ namespace SoundEditorPlugin
                 variationsPerChunk[rtVariation.ChunkIndex]++;
             }
 
-            //bool modify = true;
-            //if (modify)
-            //{
-            if (variationsPerChunk[variation.ChunkIndex] > 1)
+            //bool modify = true;
+            //if (modify)
+            //{
+            if (variationsPerChunk[variation.ChunkIndex] > 1)
             {
                 using (NativeReader chunkReader = new NativeReader(App.AssetManager.GetChunk(chunkEntry)))
                 {
                     IEnumerable<byte> buf;
                     if (variation.SegmentCount == soundWave.Segments.Count) // variation contains the only segments
-                    {
+                    {
                         buf = chunkReader.ReadToEnd();
                     }
                     else
@@ -360,11 +364,11 @@ namespace SoundEditorPlugin
                         buf = variation.FirstSegmentIndex != 0 ? chunkReader.ReadBytes((int)soundWave.Segments[variation.FirstSegmentIndex].SamplesOffset).Concat(resultBuf) : resultBuf;
 
                         if (variation.FirstSegmentIndex + variation.SegmentCount < soundWave.Segments.Count) // variation does not contain the final segments
-                        {
+                        {
                             chunkReader.Position = soundWave.Segments[variation.FirstSegmentIndex + variation.SegmentCount].SamplesOffset;
                             buf = buf.Concat(chunkReader.ReadToEnd()); // append the rest of the data
 
-                            int sizeDiff = resultBuf.Length - ((int)soundWave.Segments[variation.FirstSegmentIndex + variation.SegmentCount].SamplesOffset - (int)soundWave.Segments[variation.FirstSegmentIndex].SamplesOffset);
+                            int sizeDiff = resultBuf.Length - ((int)soundWave.Segments[variation.FirstSegmentIndex + variation.SegmentCount].SamplesOffset - (int)soundWave.Segments[variation.FirstSegmentIndex].SamplesOffset);
 
                             for (int i = variation.FirstSegmentIndex + 1; i < soundWave.Segments.Count; i++)
                             {
@@ -383,8 +387,8 @@ namespace SoundEditorPlugin
             App.AssetManager.ModifyChunk(chunkEntry.Id, resultBuf);
             soundDataChunk.ChunkSize = (uint)resultBuf.Length;
 
-            // disable seekable data, not supported
-            soundWave.Seekable = false;
+            // disable seekable data, not supported
+            soundWave.Seekable = false;
             soundWave.Segments[variation.FirstSegmentIndex].SamplesOffset = 0;
             soundWave.Segments[variation.FirstSegmentIndex].SeekTableOffset = 4294967295;
 
@@ -392,40 +396,40 @@ namespace SoundEditorPlugin
             variation.FirstLoopSegmentIndex = (byte)0;
             variation.LastLoopSegmentIndex = (byte)0;
 
-            //}
-            //else // new chunk code
-            //{
-            //    Guid chunkId = App.AssetManager.AddChunk(resultBuf);
+            //}
+            //else // new chunk code
+            //{
+            //    Guid chunkId = App.AssetManager.AddChunk(resultBuf);
 
-            //    ChunkAssetEntry newEntry = App.AssetManager.GetChunkEntry(chunkId);
-            //    newEntry.AddToBundles(chunkEntry.Bundles);
+            //    ChunkAssetEntry newEntry = App.AssetManager.GetChunkEntry(chunkId);
+            //    newEntry.AddToBundles(chunkEntry.Bundles);
 
-            //    soundDataChunk = TypeLibrary.CreateObject("SoundDataChunk");
-            //    soundDataChunk.ChunkId = chunkId;
+            //    soundDataChunk = TypeLibrary.CreateObject("SoundDataChunk");
+            //    soundDataChunk.ChunkId = chunkId;
 
-            //    soundWave.Chunks.Add(soundDataChunk);
+            //    soundWave.Chunks.Add(soundDataChunk);
 
-            //    dynamic segment = TypeLibrary.CreateObject("SoundWaveVariationSegment");
-            //    segment.SeekTableOffset = 4294967295;
-            //    soundWave.Segments.Add(segment);
+            //    dynamic segment = TypeLibrary.CreateObject("SoundWaveVariationSegment");
+            //    segment.SeekTableOffset = 4294967295;
+            //    soundWave.Segments.Add(segment);
 
-            //    dynamic variation = TypeLibrary.CreateObject("SoundWaveRuntimeVariation");
-            //    variation.FirstSegmentIndex = (ushort)(soundWave.Segments.Count - 1);
-            //    variation.SegmentCount = (byte)1;
-            //    variation.ChunkIndex = (byte)(soundWave.Chunks.Count - 1);
-            //    variation.Weight = (byte)100;
-            //    soundWave.RuntimeVariations.Add(variation);
-            //}
+            //    dynamic variation = TypeLibrary.CreateObject("SoundWaveRuntimeVariation");
+            //    variation.FirstSegmentIndex = (ushort)(soundWave.Segments.Count - 1);
+            //    variation.SegmentCount = (byte)1;
+            //    variation.ChunkIndex = (byte)(soundWave.Chunks.Count - 1);
+            //    variation.Weight = (byte)100;
+            //    soundWave.RuntimeVariations.Add(variation);
+            //}
 
-            audioPlayer.Dispose();
+            audioPlayer.Dispose();
             audioPlayer = new AudioPlayer();
 
             List<SoundDataTrack> tracks = InitialLoad(task);
 
             Dispatcher?.Invoke(() =>
             {
-                // mark asset as modified and link the chunk
-                AssetModified = true;
+                // mark asset as modified and link the chunk
+                AssetModified = true;
                 InvokeOnAssetModified();
                 EbxAssetEntry assetEntry = AssetEntry as EbxAssetEntry;
                 assetEntry.LinkAsset(chunkEntry);
