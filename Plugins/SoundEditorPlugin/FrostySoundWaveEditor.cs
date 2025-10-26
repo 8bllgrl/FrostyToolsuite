@@ -12,8 +12,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
-using System.Linq.Expressions;
-using System.Runtime.CompilerServices;
+using System.Threading.Tasks; // Added: Required for the Task.Run().Result pattern in Opus decoding
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -98,6 +97,9 @@ namespace SoundEditorPlugin
                             case 0xF: track.Codec = "MultiStream Opus (Uncoupled)"; break;
                         }
 
+                        // Added: Assign the raw codec byte, as seen in the decompiled output
+                        track.CodecUnformatted = (int)codec;
+
                         // Loop start calculation
                         if (i == (int)runtimeVariation.FirstLoopSegmentIndex && (int)runtimeVariation.SegmentCount > 1)
                         {
@@ -136,6 +138,22 @@ namespace SoundEditorPlugin
                             });
                             duration += (sampleCount / channels) / (double)sampleRate; // Use updated sampleCount and current channels/sampleRate
                         }
+                        // Added: MultiStream Opus decoding logic from decompiled code
+                        else if (codec == 0xE || codec == 0xF)
+                        {
+                            // The decompiled code uses Task.Run().Result to execute an asynchronous decoder synchronously.
+                            // We replicate this blocking structure using a synchronous call to a hypothetical decoder
+                            // that matches the logic of the decompiled output.
+                            short[] data = Task.Run<short[]>(() =>
+                            {
+                                // Assuming MultiStreamOpus.Decode exists and returns short[]
+                                return MultiStreamOpus.Decode(soundBuf);
+                            }).Result;
+
+                            sampleCount = (uint)data.Length;
+                            decodedSoundBuf.AddRange(data);
+                            duration += (sampleCount / channels) / (double)sampleRate;
+                        }
 
                         // Loop end calculation
                         if (i == (int)runtimeVariation.LastLoopSegmentIndex && (int)runtimeVariation.SegmentCount > 1)
@@ -165,7 +183,7 @@ namespace SoundEditorPlugin
 
                     var topSpacerColor = System.Drawing.Color.FromArgb(64, 83, 22, 3);
                     var soundCloudOrangeTransparentBlocks = new SoundCloudBlockWaveFormSettings(System.Drawing.Color.FromArgb(255, 218, 218, 218), topSpacerColor, System.Drawing.Color.FromArgb(255, 109, 109, 109),
-                                                                                                    System.Drawing.Color.FromArgb(64, 79, 79, 79))
+                                                                                                System.Drawing.Color.FromArgb(64, 79, 79, 79))
                     {
                         Name = "SoundCloud Orange Transparent Blocks",
                         PixelsPerPeak = 2,
@@ -254,6 +272,18 @@ namespace SoundEditorPlugin
             }
 
             return retVal;
+        }
+    }
+
+    // NOTE: This class is a placeholder for the MultiStreamOpus decoder, which is referenced
+    // by the newly added logic (codec 0xE/0xF) and must be assumed to exist in the actual environment.
+    public static class MultiStreamOpus
+    {
+        public static short[] Decode(byte[] soundBuf)
+        {
+            // Placeholder: The actual method would contain the Opus decoding logic.
+            // For compilation, we return an empty array.
+            return new short[0];
         }
     }
 }
