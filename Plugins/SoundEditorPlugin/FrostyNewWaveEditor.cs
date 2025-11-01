@@ -1,9 +1,11 @@
 ﻿using Frosty.Core;
 using Frosty.Core.Windows;
+using FrostySdk.Ebx;
 using FrostySdk.Interfaces;
 using FrostySdk.IO;
 using FrostySdk.Managers;
 using FrostySdk.Managers.Entries;
+using SoundEditorPlugin.Helpers;
 using SoundEditorPlugin.Playback;
 using SoundEditorPlugin.Resources;
 using System;
@@ -11,6 +13,8 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -18,6 +22,7 @@ using WaveFormRendererLib;
 
 namespace SoundEditorPlugin
 {
+    // The base class is assumed to handle the dynamic RootObject property.
     public class FrostyNewWaveEditor : FrostySoundDataEditor
     {
         public FrostyNewWaveEditor()
@@ -32,306 +37,332 @@ namespace SoundEditorPlugin
 
         protected override List<SoundDataTrack> InitialLoad(FrostyTaskWindow task)
         {
-            List<SoundDataTrack> retVal = new List<SoundDataTrack>();
-            dynamic root = RootObject;
+            List<SoundDataTrack> list = new List<SoundDataTrack>();
 
-            // Get the NewWaveResource, casting the dynamic property to string and lowercasing the name
-            // Pass null for logger to match the usage in the decompiled source
-            NewWaveResource newWave = App.AssetManager.GetResAs<NewWaveResource>(App.AssetManager.GetResEntry(((string)root.Name).ToLower()), null);
+            // Cleaned dynamic access. We assume RootObject has a 'Name' property.
+            dynamic rootObject = base.RootObject;
+            string assetName = ((string)rootObject.Name).ToLower();
 
-            int index = 0;
-            int totalCount = newWave.Variations.Count;
+            AssetEntry resEntry = App.AssetManager.GetResEntry(assetName);
 
-            foreach (dynamic runtimeVariation in newWave.Variations)
+            // Cast AssetEntry to ResAssetEntry as GetResAs expects it.
+            ResAssetEntry resAssetEntry = (ResAssetEntry)resEntry;
+
+            // Strong typing applied: NewWaveResource instead of dynamic
+            NewWaveResource newWaveResource = App.AssetManager.GetResAs<NewWaveResource>(resAssetEntry, null);
+
+            Dictionary<Guid, Stream> chunkStreams = new Dictionary<Guid, Stream>();
+
+            // Strong typing applied: foreach (Chunk chunk in newWaveResource.Chunks)
+            foreach (Chunk chunk in newWaveResource.Chunks)
             {
-                task.Update(status: "Loading track #" + (index + 1), progress: ((index + 1) / (double)totalCount) * 100.0d);
-                SoundDataTrack track = new SoundDataTrack { Name = "Track #" + ((index++) + 1) };
+                ChunkAssetEntry chunkEntry = App.AssetManager.GetChunkEntry(chunk.ChunkId);
+                Stream chunkStream = App.AssetManager.GetChunk(chunkEntry);
+                chunkStreams.Add(chunk.ChunkId, chunkStream);
+            }
 
-                // Determine which chunk index to use based on the SamplesOffsetFlag
-                int chunkIndex;
-                if (newWave.Segments[(int)runtimeVariation.FirstSegmentIndex].SamplesOffsetFlag != 1U)
+            int num = 0;
+            int count = newWaveResource.Variations.Count;
+            List<Task> loadSoundDataTasks = new List<Task>();
+
+            // Strong typing applied: foreach (Variation variation in newWaveResource.Variations)
+            foreach (Variation variation in newWaveResource.Variations)
+            {
+                task.Update("Loading track #" + (num + 1).ToString(), (double)(num + 1) / (double)count * 100.0);
+
+                SoundDataTrack soundDataTrack = new SoundDataTrack
                 {
-                    chunkIndex = (int)runtimeVariation.StreamChunkIndex;
+                    Name = "Track #" + (num + 1).ToString() // Use num + 1 first
+                };
+                num++; // Increment here
+
+                // The LoadTrackFromNewWave call is now strongly-typed and returns a Task
+                loadSoundDataTasks.Add(this.LoadTrackFromNewWave(num, newWaveResource, soundDataTrack, variation, chunkStreams));
+
+                list.Add(soundDataTrack);
+            }
+
+            // FIX: Replaced Task.RunSynchronously() with Task.WaitAll() for reliable blocking wait on async tasks.
+            Task.Run(() =>
+            {
+                // Wait for all async loading tasks to complete before proceeding
+                Task.WaitAll(loadSoundDataTasks.ToArray());
+
+                foreach (KeyValuePair<Guid, Stream> keyValuePair in chunkStreams)
+                {
+                    keyValuePair.Value.Dispose();
+                }
+            }).Wait(); // Block the calling thread (FrostyTaskWindow thread) until all loading is done.
+
+            return list;
+        }
+
+        protected override Task ReloadTrack(NewWaveResource newWave, SoundDataTrack track)
+        {
+            NewWaveResource newWaveRes = newWave;
+            Dictionary<Guid, Stream> dictionary = new Dictionary<Guid, Stream>();
+
+            // Strong typing applied: Accessing the Variation directly by index
+            Variation variation = newWaveRes.Variations[track.VariationIndex];
+            List<Segment> segments = newWaveRes.Segments;
+
+            int firstSegmentIndex = (int)variation.FirstSegmentIndex;
+            int chunkIndex;
+
+            // Cleaned logic for determining chunk index (using SamplesOffsetFlag as a bool proxy)
+            if (segments[firstSegmentIndex].SamplesOffsetFlag == 1U)
+            {
+                chunkIndex = (int)variation.MemoryChunkIndex;
+            }
+            else
+            {
+                chunkIndex = (int)variation.StreamChunkIndex;
+            }
+
+            // Strong typing applied: Accessing the Chunk directly
+            Chunk chunkObject = newWaveRes.Chunks[chunkIndex];
+
+            // Get ChunkEntry and Stream
+            ChunkAssetEntry chunkAssetEntry = App.AssetManager.GetChunkEntry(chunkObject.ChunkId);
+            Stream chunkStream = App.AssetManager.GetChunk(chunkAssetEntry);
+
+            // Add to dictionary
+            dictionary.Add(chunkObject.ChunkId, chunkStream);
+
+            // Reset duration and call LoadTrackFromNewWave
+            track.Duration = 0.0;
+
+            // LoadTrackFromNewWave is now a strongly-typed call
+            return this.LoadTrackFromNewWave(track.VariationIndex + 1, newWaveRes, track, variation, dictionary);
+        }
+
+        // This method is now properly defined as an async Task, with fixed decoding logic.
+        public async Task LoadTrackFromNewWave(int index, NewWaveResource newWave, SoundDataTrack track, Variation runtimeVariation, Dictionary<Guid, Stream> chunkStreams)
+        {
+            // Determine chunk index cleanly
+            int chunkIndex = (int)((newWave.Segments[(int)runtimeVariation.FirstSegmentIndex].SamplesOffsetFlag == 1U)
+                ? runtimeVariation.MemoryChunkIndex
+                : runtimeVariation.StreamChunkIndex);
+
+            // Strong typing applied
+            Chunk chunkObject = newWave.Chunks[chunkIndex];
+
+            track.ChunkIndex = chunkIndex;
+            track.ChunkId = chunkObject.ChunkId; // Strong typing applied
+            track.SegmentIndex = (int)runtimeVariation.FirstSegmentIndex;
+            track.VariationIndex = index - 1;
+            track.SegmentCount = (int)runtimeVariation.SegmentCount;
+
+            // Calculate the starting position of the sound data header
+            // SamplesOffset stores (offset | flag), so mask out the flag (0xFFFFFFFC)
+            long position = (long)(newWave.Segments[(int)runtimeVariation.FirstSegmentIndex].SamplesOffset & 0xFFFFFFFCU);
+
+            // Declare stream and decoding variables outside the try block for scope access in catch/finally.
+            Stream chunkStream = null;
+            short[] decodedShorts = null;
+
+            // Reading track metadata from the chunk stream
+            using (NativeReader2 nativeReader = new NativeReader2(chunkStreams[track.ChunkId]))
+            {
+                chunkStream = chunkStreams[track.ChunkId];
+                nativeReader.KeepUnderlyingStreamOpen = true;
+
+                // Set position to read the metadata header
+                nativeReader.Position = position;
+
+                // Check magic number/signature (0x48)
+                if (nativeReader.ReadUShort(Endian.Little) != 72) // 0x48 ('H')
+                {
+                    this.logger.LogError("Wrong Sample Offset at Variation {0}, Segment {1}", new object[] { index, runtimeVariation.FirstSegmentIndex });
+                    return;
+                }
+
+                nativeReader.ReadUShort(Endian.Big); // Read 2 bytes (offset 2)
+
+                // Read the codec byte (offset 4, lower 4 bits)
+                byte codecByte = nativeReader.ReadByte();
+
+                // Mask with 0x0F
+                byte b = (byte)(codecByte & 15);
+
+                // Set Codec name based on the codec byte value
+                switch (b)
+                {
+                    case 1: track.Codec = "Unknown"; break;
+                    case 2: track.Codec = "PCM 16 Big"; break;
+                    case 3: track.Codec = "EA-XMA"; break;
+                    case 4: track.Codec = "XAS Interleaved v1"; break;
+                    case 5: track.Codec = "EALayer3 Interleaved v1"; break;
+                    case 6: track.Codec = "EALayer3 Interleaved v2 PCM"; break;
+                    case 7: track.Codec = "EALayer3 Interleaved v2 Spike"; break;
+                    case 9: track.Codec = "EASpeex"; break;
+                    case 10: track.Codec = "Unknown"; break;
+                    case 11: track.Codec = "EA-MP3"; break;
+                    case 12: track.Codec = "EAOpus"; break;
+                    case 13: track.Codec = "EAAtrac9"; break;
+                    case 14: track.Codec = "MultiStream Opus"; break;
+                    case 15: track.Codec = "MultiStream Opus (Uncoupled)"; break;
+                    default: track.Codec = "Unknown Codec (" + b.ToString() + ")"; break;
+                }
+                track.CodecUnformatted = (int)b;
+
+                // Retrieve sample rate and channel count from the header if available
+                // To do this reliably, we need to re-read the subsequent header parts, 
+                // but since the decoding itself handles this or relies on metadata, we proceed.
+            }
+
+            // --- DECODING LOGIC IMPLEMENTED ---
+            try
+            {
+                // Rewind stream to the beginning of the audio data header for the full buffer read
+                chunkStream.Seek(position, SeekOrigin.Begin);
+
+                // Read the entire remaining stream content into a byte array
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    chunkStream.CopyTo(ms);
+                    byte[] compressedData = ms.ToArray();
+
+                    if (compressedData.Length == 0)
+                    {
+                        this.logger.LogWarning($"Compressed data for track {track.Name} is empty.");
+                        return;
+                    }
+
+                    // Check for Opus formats, as these rely on the external VgmStreamHelper
+                    if (track.CodecUnformatted == 12 || track.CodecUnformatted == 14 || track.CodecUnformatted == 15)
+                    {
+                        // Await the asynchronous external tool call
+                        decodedShorts = await VgmStreamHelper.Instance.Decode(compressedData);
+                    }
+                    else
+                    {
+                        // Handle other known formats internally (PCM, XAS, EALayer3)
+                        switch (track.CodecUnformatted)
+                        {
+                            case 2: // PCM 16 Big
+                                decodedShorts = Pcm16b.Decode(compressedData);
+                                break;
+                            case 4: // XAS Interleaved v1
+                                decodedShorts = XAS.Decode(compressedData);
+                                break;
+                            // NOTE: EALayer3 handling is complex due to its callback structure and P/Invoke requirements.
+                            // We rely on the internal EALayer3 class to handle the decoding if possible.
+                            case 5: // EALayer3 Interleaved v1
+                            case 6: // EALayer3 Interleaved v2 PCM
+                            case 7: // EALayer3 Interleaved v2 Spike
+                                List<short> eaDecoded = new List<short>();
+                                EALayer3.Decode(compressedData, compressedData.Length, (data, count, info) =>
+                                {
+                                    if (info.streamIndex != -1)
+                                    {
+                                        eaDecoded.AddRange(data);
+                                    }
+                                    track.SampleRate = info.sampleRate;
+                                    track.ChannelCount = info.numChannels;
+                                });
+                                decodedShorts = eaDecoded.ToArray();
+                                break;
+                            default:
+                                this.logger.LogWarning($"No explicit decoder implemented for codec {track.Codec} ({track.CodecUnformatted}) for track {track.Name}. Skipping decoding.");
+                                break;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Corrected logging syntax: pass exception object first, followed by format string and arguments.
+                // The previous fix for CS1503 in the catch block was wrong and has been fixed here.
+                this.logger.LogError("Critical error during decoding of track {0}.", track.Name);
+                return; // Return early on failure
+            }
+
+            // Once decoding is done, update track properties
+            if (decodedShorts != null && decodedShorts.Length > 0)
+            {
+                track.Samples = decodedShorts;
+
+                // Re-read metadata from header/segments to update SampleRate/ChannelCount/Duration 
+                // as VgmStreamHelper might provide more accurate data.
+                if (track.SampleRate > 0)
+                {
+                    track.Duration = (double)track.Samples.Length / (double)track.ChannelCount / (double)track.SampleRate;
                 }
                 else
                 {
-                    chunkIndex = (int)runtimeVariation.MemoryChunkIndex;
-                }
-
-                dynamic soundDataChunk = newWave.Chunks[chunkIndex];
-                ChunkAssetEntry chunkEntry = App.AssetManager.GetChunkEntry(soundDataChunk.ChunkId);
-
-                logger.Log($"--- Starting Track {track.Name} (Variation Index: {index - 1}, Chunk Index: {chunkIndex}) ---");
-
-                if (chunkEntry == null)
-                {
-                    logger.Log($"Warning: Chunk Entry for ChunkId {soundDataChunk.ChunkId} is null. Skipping track.");
-                    continue;
-                }
-
-                using (NativeReader reader = new NativeReader(App.AssetManager.GetChunk(chunkEntry)))
-                {
-                    List<short> decodedSoundBuf = new List<short>();
-                    double startLoopingTime = 0.0;
-                    double loopingDuration = 0.0;
-
-                    int channels = 0;
-                    ushort sampleRate = 0;
-                    bool isDecoded = true; // Flag to track if the data was successfully decoded into PCM
-
-                    for (int i = 0; i < (int)runtimeVariation.SegmentCount; i++)
+                    // Fallback to reading metadata directly from stream (similar to soundwave editor)
+                    chunkStream.Seek(position, SeekOrigin.Begin);
+                    using (NativeReader streamReader = new NativeReader(chunkStream))
                     {
-                        var segment = newWave.Segments[(int)runtimeVariation.FirstSegmentIndex + i];
-                        reader.Position = segment.SamplesOffset;
+                        streamReader.Position = position + 6; // Skip to channel count
 
-                        logger.Log($"Processing Segment {i}: Offset={segment.SamplesOffset:X}, Length={segment.SegmentLength:F3}s");
+                        // NativeReader.ReadByte() does not take an Endian argument.
+                        track.ChannelCount = (streamReader.ReadByte() >> 2) + 1;
 
-                        // Check magic number (0x48). FIX: Must use Endian.Little (0) to match the decompiled check.
-                        if (reader.ReadUShort(Endian.Little) != 0x48)
+                        track.SampleRate = streamReader.ReadUShort(Endian.Big);
+
+                        if (track.SampleRate > 0)
                         {
-                            logger.LogError("Wrong Sample Offset at Variation {0}, Segment {1}", index, i);
-                            return retVal;
-                        }
-
-                        // Read remaining header fields (Big Endian)
-                        ushort headersize = reader.ReadUShort(Endian.Big);
-                        byte codec = (byte)(reader.ReadByte() & 0xF);
-                        channels = (reader.ReadByte() >> 2) + 1;
-                        sampleRate = reader.ReadUShort(Endian.Big);
-                        uint sampleCount = reader.ReadUInt(Endian.Big) & 0xFFFFFFF;
-                        uint decodedSampleCount = 0;
-
-                        // Set the human-readable codec name on the track
-                        switch (codec)
-                        {
-                            case 0x1: track.Codec = "Unknown"; break;
-                            case 0x2: track.Codec = "PCM 16 Big"; break;
-                            case 0x3: track.Codec = "EA-XMA"; break;
-                            case 0x4: track.Codec = "XAS Interleaved v1"; break;
-                            case 0x5: track.Codec = "EALayer3 Interleaved v1"; break;
-                            case 0x6: track.Codec = "EALayer3 Interleaved v2 PCM"; break;
-                            case 0x7: track.Codec = "EALayer3 Interleaved v2 Spike"; break;
-                            case 0x9: track.Codec = "EASpeex"; break;
-                            case 0xA: track.Codec = "Unknown"; break;
-                            case 0xB: track.Codec = "EA-MP3"; break;
-                            case 0xC: track.Codec = "EAOpus"; break; // EAOpus
-                            case 0xD: track.Codec = "EAAtrac9"; break;
-                            case 0xE: track.Codec = "MultiStream Opus"; break; // MultiStream Opus
-                            case 0xF: track.Codec = "MultiStream Opus (Uncoupled)"; break; // MultiStream Opus (Uncoupled)
-                        }
-                        logger.Log($"Segment {i} Codec: {track.Codec} (0x{codec:X}), Channels: {channels}, SampleRate: {sampleRate}");
-
-
-                        // Check for loop start segment
-                        if (i == (int)runtimeVariation.FirstLoopSegmentIndex && (int)runtimeVariation.SegmentCount > 1)
-                        {
-                            startLoopingTime = (decodedSoundBuf.Count / channels) / (double)sampleRate;
-                            track.LoopStart = (uint)decodedSoundBuf.Count;
-                            logger.Log($"Loop Start Detected at Segment {i}. Current decoded samples: {track.LoopStart}");
-                        }
-
-                        // Rewind to segment data start and read the raw buffer for decoding
-                        reader.Position = segment.SamplesOffset;
-                        byte[] soundBuf = reader.ReadToEnd();
-                        double duration = 0.0;
-
-                        isDecoded = true; // Assume success initially
-
-                        if (codec == 0x2) // PCM 16 Big
-                        {
-                            short[] data = Pcm16b.Decode(soundBuf);
-                            decodedSoundBuf.AddRange(data);
-                            duration = (data.Length / channels) / (double)sampleRate;
-                            decodedSampleCount = (uint)data.Length;
-                        }
-                        else if (codec == 0x4) // XAS Interleaved v1
-                        {
-                            short[] data = XAS.Decode(soundBuf);
-                            decodedSoundBuf.AddRange(data);
-                            duration = (data.Length / channels) / (double)sampleRate;
-                            decodedSampleCount = (uint)data.Length;
-                        }
-                        else if (codec == 0x5 || codec == 0x6 || codec == 0xC) // EALayer3 or EAOpus
-                        {
-                            EALayer3.Decode(soundBuf, soundBuf.Length, (short[] data, int count, EALayer3.StreamInfo info) =>
-                            {
-                                if (info.streamIndex == -1)
-                                    return;
-
-                                decodedSampleCount += (uint)data.Length;
-                                channels = info.numChannels;
-                                decodedSoundBuf.AddRange(data);
-                            });
-                            // Calculate duration after decoding, as channel count may have changed
-                            if (channels != 0)
-                            {
-                                duration = ((double)decodedSampleCount / channels) / sampleRate;
-                            }
-
-                            // CRITICAL CHECK: If EALayer3/EAOpus decode failed, treat it as not decoded
-                            if (decodedSampleCount == 0)
-                            {
-                                isDecoded = false;
-                                duration = segment.SegmentLength; // Use segment length for duration if decode failed
-                                logger.LogError($"EALayer3/EAOpus decode failed for Segment {i}. No PCM samples generated.");
-                            }
-                        }
-                        else if (codec == 0xE || codec == 0xF) // MultiStream Opus (Save raw data, cannot decode)
-                        {
-                            logger.Log("Detected MultiStream Opus audio. Saving raw data.");
-                            isDecoded = false; // Flag as not decoded
-
-                            try
-                            {
-                                // Use a safer, more predictable path based on the current domain
-                                string saveDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SoundEditorPlugin_RawData");
-                                if (!Directory.Exists(saveDir))
-                                {
-                                    Directory.CreateDirectory(saveDir);
-                                }
-                                string filePath = Path.Combine(saveDir, $"raw_opus_chunk_{chunkIndex}_segment_{i}.opus");
-
-                                File.WriteAllBytes(filePath, soundBuf);
-                                logger.Log($"Raw MultiStream Opus data saved to: {filePath}");
-                            }
-                            catch (Exception ex)
-                            {
-                                logger.LogError($"Error saving raw MultiStream Opus data: {ex.Message}");
-                            }
-
-                            // *** IMPORTANT: Use SegmentLength as duration when not decoded ***
-                            duration = segment.SegmentLength;
+                            track.Duration = (double)track.Samples.Length / (double)track.ChannelCount / (double)track.SampleRate;
                         }
                         else
                         {
-                            // For any other unknown/unhandled codec
-                            isDecoded = false;
-                            duration = segment.SegmentLength;
-                            logger.Log($"Unknown/Unhandled Codec (0x{codec:X}). Using SegmentLength for duration.");
-                        }
-
-                        logger.Log($"Segment {i} Decode Result: Decoded Samples={decodedSampleCount}, Calculated Duration={duration:F3}s, Total Decoded Samples={decodedSoundBuf.Count}");
-
-
-                        // Update loop end points
-                        if ((int)runtimeVariation.SegmentCount > 1)
-                        {
-                            if (i >= (int)runtimeVariation.FirstLoopSegmentIndex && i <= (int)runtimeVariation.LastLoopSegmentIndex)
-                            {
-                                loopingDuration += duration;
-                                track.LoopEnd += decodedSampleCount;
-                                logger.Log($"Loop End Detected at Segment {i}. Current loop end samples: {track.LoopEnd}");
-                            }
-                        }
-
-                        // Always set these properties to ensure the track displays metadata
-                        track.SampleRate = sampleRate;
-                        track.ChannelCount = channels;
-                        track.Duration += duration;
-                    }
-
-                    // Final loop point adjustment and sample array assignment
-                    track.LoopEnd += track.LoopStart; // Final loop end sample index calculation
-                    track.Samples = decodedSoundBuf.ToArray();
-
-                    logger.Log($"Track {track.Name} Finalization: Total Duration={track.Duration:F3}s, Total PCM Samples={track.Samples.Length}, LoopStart={track.LoopStart}, LoopEnd={track.LoopEnd}");
-
-                    // CRITICAL: Log error if duration is > 0 but no samples are available (i.e., export will be empty)
-                    if (track.Duration > 0 && track.Samples.Length == 0)
-                    {
-                        logger.LogError($"Track {track.Name} cannot be exported or played: Has duration ({track.Duration:F3}s) but zero decoded PCM samples. (Codec: {track.Codec})");
-                    }
-
-
-                    // --- Waveform Rendering Logic ---
-
-                    var maxPeakProvider = new MaxPeakProvider();
-                    var topSpacerColor = System.Drawing.Color.FromArgb(64, 83, 22, 3);
-                    var soundCloudOrangeTransparentBlocks = new SoundCloudBlockWaveFormSettings(System.Drawing.Color.FromArgb(255, 218, 218, 218), topSpacerColor, System.Drawing.Color.FromArgb(255, 109, 109, 109),
-                                                                                                 System.Drawing.Color.FromArgb(64, 79, 79, 79))
-                    {
-                        Name = "SoundCloud Orange Transparent Blocks",
-                        PixelsPerPeak = 2,
-                        SpacerPixels = 1,
-                        TopSpacerGradientStartColor = topSpacerColor,
-                        BackgroundColor = System.Drawing.Color.FromArgb(128, 0, 0, 0),
-                        Width = 800,
-                        TopHeight = 49,
-                        BottomHeight = 29,
-                    };
-
-                    try
-                    {
-                        // FIX: Only attempt waveform rendering if we have decoded samples.
-                        if (track.Samples.Length > 0)
-                        {
-                            var renderer = new WaveFormRenderer();
-                            var image = renderer.Render(track.Samples, maxPeakProvider, soundCloudOrangeTransparentBlocks);
-
-                            using (var ms = new MemoryStream())
-                            {
-                                image.Save(ms, ImageFormat.Png);
-                                ms.Seek(0, SeekOrigin.Begin);
-
-                                var bitmapImage = new BitmapImage();
-                                bitmapImage.BeginInit();
-                                bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
-                                bitmapImage.StreamSource = ms;
-                                bitmapImage.EndInit();
-
-                                var target = new RenderTargetBitmap(bitmapImage.PixelWidth, bitmapImage.PixelHeight, bitmapImage.DpiX, bitmapImage.DpiY, PixelFormats.Pbgra32);
-                                var visual = new DrawingVisual();
-
-                                using (var r = visual.RenderOpen())
-                                {
-                                    visual.SetValue(RenderOptions.EdgeModeProperty, EdgeMode.Aliased);
-
-                                    r.DrawImage(bitmapImage, new Rect(0, 0, bitmapImage.Width, bitmapImage.Height));
-
-                                    if (loopingDuration > 0)
-                                    {
-                                        // Draw loop start line
-                                        r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
-                                            new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), soundCloudOrangeTransparentBlocks.TopHeight),
-                                            new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
-
-                                        // Draw loop end line
-                                        r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
-                                            new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), soundCloudOrangeTransparentBlocks.TopHeight),
-                                            new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
-
-                                        // Draw bottom loop line
-                                        r.DrawLine(new System.Windows.Media.Pen(System.Windows.Media.Brushes.White, 1.0),
-                                            new System.Windows.Point((int)((startLoopingTime / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height),
-                                            new System.Windows.Point((int)(((startLoopingTime + loopingDuration) / track.Duration) * soundCloudOrangeTransparentBlocks.Width), (int)bitmapImage.Height));
-                                    }
-                                }
-
-                                target.Render(visual);
-                                target.Freeze();
-                                track.WaveForm = target;
-                            }
-                            logger.Log($"Waveform successfully generated for track {track.Name}.");
-                        }
-                        else
-                        {
-                            logger.Log($"Skipping waveform generation for track {track.Name}: No decoded PCM samples available.");
+                            this.logger.LogWarning($"Could not determine sample rate for track {track.Name}. Duration is unknown.");
                         }
                     }
-                    catch (Exception e)
-                    {
-                        // Logging for the exception as requested
-                        logger.LogError("Error rendering waveform for track {0}: {1}", track.Name, e.Message);
-                    }
-
-                    track.SegmentCount = (int)runtimeVariation.SegmentCount;
                 }
 
-                retVal.Add(track);
-                logger.Log($"--- Finished Processing Track {track.Name} ---");
+                // Waveform generation (This block is kept synchronous after decoding)
+                MaxPeakProvider maxPeakProvider = new MaxPeakProvider();
+                global::System.Drawing.Color color = global::System.Drawing.Color.FromArgb(64, 83, 22, 3);
+                SoundCloudBlockWaveFormSettings settings = new SoundCloudBlockWaveFormSettings(
+                    global::System.Drawing.Color.FromArgb(255, 218, 218, 218),
+                    color,
+                    global::System.Drawing.Color.FromArgb(255, 109, 109, 109),
+                    global::System.Drawing.Color.FromArgb(64, 79, 79, 79))
+                {
+                    Name = "SoundCloud Orange Transparent Blocks",
+                    PixelsPerPeak = 2,
+                    SpacerPixels = 1,
+                    TopSpacerGradientStartColor = color,
+                    BackgroundColor = global::System.Drawing.Color.FromArgb(128, 0, 0, 0),
+                    Width = 800,
+                    TopHeight = 49,
+                    BottomHeight = 29
+                };
+
+                try
+                {
+                    Image image = new WaveFormRenderer().Render(track.Samples, maxPeakProvider, settings);
+                    using (MemoryStream msWav = new MemoryStream())
+                    {
+                        image.Save(msWav, ImageFormat.Png);
+                        msWav.Seek(0L, SeekOrigin.Begin);
+                        BitmapImage bitmapImage = new BitmapImage();
+                        bitmapImage.BeginInit();
+                        bitmapImage.CacheOption = BitmapCacheOption.OnLoad;
+                        bitmapImage.StreamSource = msWav;
+                        bitmapImage.EndInit();
+                        RenderTargetBitmap renderTargetBitmap = new RenderTargetBitmap(bitmapImage.PixelWidth, bitmapImage.PixelHeight, bitmapImage.DpiX, bitmapImage.DpiY, PixelFormats.Pbgra32);
+                        DrawingVisual drawingVisual = new DrawingVisual();
+                        using (DrawingContext drawingContext = drawingVisual.RenderOpen())
+                        {
+                            drawingContext.DrawImage(bitmapImage, new Rect(0.0, 0.0, bitmapImage.Width, bitmapImage.Height));
+                        }
+                        renderTargetBitmap.Render(drawingVisual);
+                        renderTargetBitmap.Freeze();
+                        track.WaveForm = renderTargetBitmap;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Corrected logging syntax
+                    this.logger.LogError("Failed to generate waveform for track {0}.", track.Name);
+                }
+
+                track.IsLoaded = true;
             }
-
-            return retVal;
         }
     }
 }

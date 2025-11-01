@@ -1,7 +1,6 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq; // Added System.Linq for Array.ToArray() or IEnumerable extension methods
+using System.Linq;
 using FrostySdk.IO;
 
 namespace SoundEditorPlugin.Resources
@@ -9,8 +8,6 @@ namespace SoundEditorPlugin.Resources
 
     public static class SoundBankUtils
     {
-        // Fix: Changed list.ToArray() to list.ToArray() which is redundant if using System.Linq, 
-        // but safe since GetLowest accepts long[].
         public static long GetLowest(this List<long> list)
         {
             return list.ToArray().GetLowest();
@@ -18,16 +15,14 @@ namespace SoundEditorPlugin.Resources
 
         public static long GetLowest(this long[] array)
         {
-            bool flag = array.Length < 1;
-            if (flag)
+            if (array.Length < 1)
             {
                 throw new Exception("array can't be empty");
             }
             long num = array[0];
             foreach (long num2 in array)
             {
-                bool flag2 = num > num2;
-                if (flag2)
+                if (num > num2)
                 {
                     num = num2;
                 }
@@ -37,48 +32,27 @@ namespace SoundEditorPlugin.Resources
 
         public static byte GetBiggestSize(this long[] array)
         {
-            byte b = 0;
+            // Corrected logic to determine the smallest required storage size (1, 2, 4, or 8 bytes)
+            byte b = 1;
             foreach (long num in array)
             {
-                byte[] bytes = BitConverter.GetBytes(num);
-                Array.Reverse(bytes);
-                byte b2 = 0;
-                foreach (byte b3 in bytes)
+                if (num > 255L)
                 {
-                    bool flag = b2 > 0;
-                    if (flag)
-                    {
-                        break;
-                    }
-                    // FIX: Explicitly cast the result of b2 + 1 back to byte.
-                    b2 = (byte)(b2 + 1);
-                }
-                // FIX: Explicitly cast the result of 8 - b2 back to byte.
-                b2 = (byte)(8 - b2);
-                bool flag2 = b2 > b;
-                if (flag2)
-                {
-                    b = b2;
-                }
-            }
-            bool flag3 = b > 4;
-            if (flag3)
-            {
-                b = 8;
-            }
-            else
-            {
-                bool flag4 = b > 2;
-                if (flag4)
-                {
-                    b = 4;
-                }
-                else
-                {
-                    bool flag5 = b > 1;
-                    if (flag5)
+                    if (b < 2)
                     {
                         b = 2;
+                    }
+                    if (num > 65535L)
+                    {
+                        if (b < 4)
+                        {
+                            b = 4;
+                        }
+                        // Check if it exceeds max 32-bit unsigned value
+                        if (num > (long)uint.MaxValue)
+                        {
+                            return 8;
+                        }
                     }
                 }
             }
@@ -89,16 +63,17 @@ namespace SoundEditorPlugin.Resources
         {
             byte biggestSize = array.GetBiggestSize();
             Dictionary<int, List<long>> dictionary = new Dictionary<int, List<long>>();
+
+            // Iterate through possible shifts (0-255)
             foreach (long num in array)
             {
                 for (int j = 0; j <= 255; j++)
                 {
+                    // Check if dividing by 2^j results in a whole number
                     double num2 = (double)num / Math.Pow(2.0, (double)j);
-                    bool flag = num2 % 1.0 == 0.0;
-                    if (flag)
+                    if (num2 % 1.0 == 0.0)
                     {
-                        bool flag2 = !dictionary.ContainsKey(j);
-                        if (flag2)
+                        if (!dictionary.ContainsKey(j))
                         {
                             dictionary.Add(j, new List<long>());
                         }
@@ -106,29 +81,36 @@ namespace SoundEditorPlugin.Resources
                     }
                 }
             }
+
             List<long> list = new List<long>(255);
+
+            // Find shifts where ALL numbers are perfectly divisible
             foreach (KeyValuePair<int, List<long>> keyValuePair in dictionary)
             {
-                bool flag3 = keyValuePair.Value.Count != array.Length;
-                if (!flag3)
+                if (keyValuePair.Value.Count == array.Length)
                 {
                     list.Add((long)keyValuePair.Key);
                 }
             }
-            byte b = (byte)list.GetLowest();
-            bool flag4 = dictionary[(int)b].ToArray().GetBiggestSize() < biggestSize;
-            byte b2;
-            if (flag4)
-            {
-                outArray = dictionary[(int)b].ToArray();
-                b2 = b;
-            }
-            else
+
+            // Get the smallest possible shift (i.e., the greatest common power of 2 factor)
+            if (list.Count == 0)
             {
                 outArray = array;
-                b2 = 0;
+                return 0;
             }
-            return b2;
+
+            byte b = (byte)list.GetLowest();
+
+            // Check if the shifted array fits into a smaller storage size than the original
+            if (dictionary[(int)b].ToArray().GetBiggestSize() < biggestSize)
+            {
+                outArray = dictionary[(int)b].ToArray();
+                return b;
+            }
+
+            outArray = array;
+            return 0;
         }
 
         public static byte[] ConvertToBytes(this long[] array, Endian endian)
@@ -138,22 +120,39 @@ namespace SoundEditorPlugin.Resources
             for (int i = 0; i < array.Length; i++)
             {
                 byte[] bytes = BitConverter.GetBytes(array[i]);
-                int num = 0;
-                while (i < (int)biggestSize)
+                for (int j = 0; j < (int)biggestSize; j++)
                 {
-                    bool flag = endian == 0;
-                    if (flag)
+                    if (endian == Endian.Little)
                     {
-                        array2[i * (int)biggestSize + num] = bytes[num];
+                        // Little Endian: copy bytes directly (0, 1, 2, 3...)
+                        array2[i * (int)biggestSize + j] = bytes[j];
                     }
                     else
                     {
-                        array2[i * (int)biggestSize + num] = bytes[(int)(biggestSize - 1) - num];
+                        // Big Endian: reverse copy bytes (3, 2, 1, 0...)
+                        array2[i * (int)biggestSize + j] = bytes[(int)(biggestSize - 1) - j];
                     }
-                    num++;
                 }
             }
             return array2;
+        }
+
+        // Utility method used by NewWaveResource for bit width calculation
+        public static int GetUnsignedWidth(this long value)
+        {
+            if (value <= 255L)
+            {
+                return 1;
+            }
+            if (value <= 65535L)
+            {
+                return 2;
+            }
+            if (value <= (long)uint.MaxValue)
+            {
+                return 4;
+            }
+            return 8;
         }
     }
 }

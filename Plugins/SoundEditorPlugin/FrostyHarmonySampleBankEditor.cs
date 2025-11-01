@@ -56,23 +56,23 @@ namespace SoundEditorPlugin
             using (NativeReader reader = new NativeReader(App.AssetManager.GetChunk(ramChunkEntry)))
             {
                 reader.Position = 0x0a;
-                int datasetCount = reader.ReadUShort();
+                int datasetCount = reader.ReadUShort(Endian.Little); // Explicitly read as Little Endian based on decompiled usage
 
                 reader.Position = 0x20;
-                int dataOffset = reader.ReadInt();
+                int dataOffset = reader.ReadInt(Endian.Little); // Explicitly read as Little Endian
 
                 reader.Position = 0x50;
                 List<int> offsets = new List<int>();
                 for (int i = 0; i < datasetCount; i++)
                 {
-                    offsets.Add(reader.ReadInt());
+                    offsets.Add(reader.ReadInt(Endian.Little)); // Explicitly read as Little Endian
                     reader.Position += 4;
                 }
 
                 foreach (int offset in offsets)
                 {
                     reader.Position = offset + 0x3c;
-                    int blockCount = reader.ReadUShort();
+                    int blockCount = reader.ReadUShort(Endian.Little); // Explicitly read as Little Endian
                     reader.Position += 0x0a;
 
                     int fileOffset = -1;
@@ -80,11 +80,11 @@ namespace SoundEditorPlugin
 
                     for (int i = 0; i < blockCount; i++)
                     {
-                        uint blockType = reader.ReadUInt();
+                        uint blockType = reader.ReadUInt(Endian.Little); // Explicitly read as Little Endian
                         if (blockType == 0x2e4f4646) // '.OFF'
                         {
                             reader.Position += 4;
-                            fileOffset = reader.ReadInt();
+                            fileOffset = reader.ReadInt(Endian.Little); // Explicitly read as Little Endian
                             reader.Position += 0x0c;
 
                             streaming = true;
@@ -92,7 +92,7 @@ namespace SoundEditorPlugin
                         else if (blockType == 0x2e52414d) // '.RAM'
                         {
                             reader.Position += 4;
-                            fileOffset = reader.ReadInt() + dataOffset;
+                            fileOffset = reader.ReadInt(Endian.Little) + dataOffset; // Explicitly read as Little Endian
                             reader.Position += 0x0c;
                         }
                         else
@@ -113,7 +113,9 @@ namespace SoundEditorPlugin
                         List<short> decodedSoundBuf = new List<short>();
 
                         // Header reading (Big Endian specified to match decompiled logic)
-                        uint headerSize = actualReader.ReadUInt(Endian.Big) & 0x00ffffff;
+                        // The ReadUInt at offset 0 has the size and flag masked off in the later editors, but here it's just read and ignored.
+                        actualReader.ReadUInt(Endian.Big);
+
                         byte codec = actualReader.ReadByte();
                         int channels = (actualReader.ReadByte() >> 2) + 1;
                         ushort sampleRate = actualReader.ReadUShort(Endian.Big);
@@ -142,25 +144,25 @@ namespace SoundEditorPlugin
                         }
                         else if (codec == 0x15 || codec == 0x16)
                         {
-                            sampleCount = 0;
+                            uint tempSampleCount = 0; // Use a temporary variable for the lambda
                             EALayer3.Decode(soundBuf, soundBuf.Length, (short[] data, int count, EALayer3.StreamInfo info) =>
                             {
                                 if (info.streamIndex == -1)
                                     return;
 
-                                sampleCount += (uint)data.Length;
+                                tempSampleCount += (uint)data.Length;
                                 decodedSoundBuf.AddRange(data);
                             });
-                            duration += (sampleCount / channels) / (double)sampleRate;
+                            duration += ((double)tempSampleCount / channels) / (double)sampleRate;
                         }
 
                         track.Duration += duration;
                         track.Samples = decodedSoundBuf.ToArray();
 
                         var maxPeakProvider = new MaxPeakProvider();
-                        var rmsPeakProvider = new RmsPeakProvider(200); // e.g. 200
-                        var samplingPeakProvider = new SamplingPeakProvider(200); // e.g. 200
-                        var averagePeakProvider = new AveragePeakProvider(4); // e.g. 4
+                        var rmsPeakProvider = new RmsPeakProvider(200);
+                        var samplingPeakProvider = new SamplingPeakProvider(200);
+                        var averagePeakProvider = new AveragePeakProvider(4f); // Use float literal
 
                         var topSpacerColor = System.Drawing.Color.FromArgb(64, 83, 22, 3);
                         var soundCloudOrangeTransparentBlocks = new SoundCloudBlockWaveFormSettings(System.Drawing.Color.FromArgb(196, 197, 53, 0), topSpacerColor, System.Drawing.Color.FromArgb(196, 79, 26, 0),
@@ -205,7 +207,7 @@ namespace SoundEditorPlugin
                                 track.WaveForm = target;
                             }
                         }
-                        catch (Exception e)
+                        catch (Exception)
                         {
                             // Empty catch block as in original
                         }

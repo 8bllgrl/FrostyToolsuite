@@ -34,5 +34,8 @@ namespace SoundEditorPlugin.Resources
 
         [EbxFieldMeta(EbxFieldType.UInt32)]
         public uint LastLoopSegmentIndex { get; set; }
+
+        [EbxFieldMeta(EbxFieldType.Boolean)]
+        public bool IsStream { get; set; }
     }
 }
